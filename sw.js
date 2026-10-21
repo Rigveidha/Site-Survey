@@ -1,7 +1,7 @@
 // Offline helper for DAS Site Survey.
 // Online: always fetch the newest files (and keep a copy). Offline: use the saved copy.
-const CACHE = 'das-site-survey-v4';
-const CORE = ['./', './index.html', './manifest-v3.json', './icon-192-v3.png', './icon-512-v3.png', './icon-512-maskable-v3.png'];
+const CACHE = 'das-site-survey-v5';
+const CORE = ['./', './index.html', './manifest-v4.json', './icon-192-v3.png', './icon-512-v3.png', './icon-512-maskable-v3.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
