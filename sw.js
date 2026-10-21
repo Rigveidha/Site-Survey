@@ -1,6 +1,6 @@
 // Offline helper for DAS Site Survey.
 // The app page is fetched fresh when online (so new uploads show up) and served from the saved copy when offline.
-const CACHE = 'das-site-survey-v1';
+const CACHE = 'das-site-survey-v3';
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-512-maskable.png'];
 
 self.addEventListener('install', (e) => {
