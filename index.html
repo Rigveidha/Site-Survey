@@ -457,6 +457,7 @@
         var ov = document.getElementById('askOverlay'), acts = document.getElementById('askActions'), inp = document.getElementById('askInput');
         document.getElementById('askMsg').textContent = msg;
         inp.hidden = !input; inp.value = ''; inp.placeholder = (input && input.placeholder) || '';
+        inp.setAttribute('inputmode', (input && input.mode) || 'text');
         acts.innerHTML = buttons.map(function (b, i) {
           return '<button type="button" class="ask-btn' + (b.kind ? ' ' + b.kind : '') + '" data-i="' + i + '">' + esc(b.label) + '</button>';
         }).join('');
@@ -594,6 +595,7 @@
     { key: 'block', label: 'Block', type: 'text', blocks: true },
     { key: 'roomName', label: 'Room name & floor', type: 'text', placeholder: 'e.g. MDF Room, LG' },
     { key: 'overallView', label: 'Overall view', type: 'photo', tags: 1 },
+    { key: 'itemList', label: 'Numbered items — printed as a table under the photo', type: 'items', examples: ['Proposed U Mobile cabinet', 'Proposed 200mm cable ladder 3m', 'Proposed U Mobile PDU'] },
     { key: 'doorPhoto', label: 'Door photo', type: 'photo' },
     { key: 'floorPlan', label: 'Floor plan with room marked', type: 'photo' },
     { measure: 1, key: 'measured', label: 'Measurement', type: 'text', placeholder: 'Type it, or tap Measure on the floor plan / photo' },
@@ -621,6 +623,7 @@
     { key: 'sector', label: 'Sector', type: 'text', placeholder: 'e.g. Sector 1 (RRU) & 2 (RHUB)' },
     { key: 'equipHere', label: 'Equipment here', type: 'seg', options: ['RHUB', 'RRU', 'RHUB + RRU'] },
     { key: 'referencePhoto', label: 'Riser photo', type: 'photo', tags: 1 },
+    { key: 'itemList', label: 'Numbered items — printed as a table under the photo', type: 'items', examples: ['Proposed RHUB location', 'Proposed RRU location', 'Proposed 200mm cable tray'] },
     { key: 'doorPhoto', label: 'Door photo', type: 'photo' },
     { key: 'layoutPhoto', label: 'Layout diagram (floor plan)', type: 'photo' },
     { more: 1, key: 'rhubId', label: 'RHUB ID', type: 'text', placeholder: 'e.g. GF-RHUB001' },
@@ -771,7 +774,7 @@
         return '<button type="button" data-val="' + esc(o) + '" aria-pressed="false">' + esc(o) + '</button>';
       }).join('') + '</div>';
     } else if (f.type === 'photo') inner = '<div class="photo-grid"' + (f.tags ? ' data-tags="1"' : '') + '></div>' +
-      (f.tags ? '<p class="field-hint">Tap <b>1 2 3</b> on a photo to number the items on it.</p>' : '');
+      (f.tags ? '<p class="field-hint">Tap <b>1 2 3</b> on a photo, then tap each item: the app asks its name and adds it to the numbered list below.</p>' : '');
     else if (f.type === 'gps' || f.type === 'gpsphoto') {
       inner = '<div class="gps-row"><input type="text" class="gps-input" inputmode="decimal" autocomplete="off" placeholder="Lat, Long — e.g. 3.2437505, 101.4737994">' +
         '<button type="button" class="gps-btn">' + PIN_SVG + ' Use my location</button></div><span class="gps-value"></span>' +
@@ -1018,7 +1021,7 @@
                                            : 'Step 1 of 2 — set the scale: tap two points whose real distance you know (a gridline span, a door, a corridor you paced).';
       else t = 'Step 2 of 2 — tap along the cable route. ' + (A.route.length > 1 ? 'Route: ' + fmtM(routeM()) + '. ' : '') +
                'Undo removes the last point.' + (A.target ? ' Save puts the length in the form.' : '');
-    } else if (A.tool === 'tag') t = 'Tap to drop numbered tags 1, 2, 3… then list the items in the form. The original photo is always kept.';
+    } else if (A.tool === 'tag') t = A.itemsField ? 'Tap each item to drop 1, 2, 3… and type its name; it goes into the numbered list under the photo.' : 'Tap to drop numbered tags 1, 2, 3… The original photo is always kept.';
     else t = 'Draw on the photo with your finger. The original photo is always kept.';
     annotHint.textContent = t;
   }
@@ -1038,6 +1041,8 @@
     opts = opts || {};
     var p = grid._photos[idx];
     A.grid = grid; A.idx = idx; A.target = opts.target || null;
+    var card = grid.closest('.block-body');
+    A.itemsField = (grid.dataset.tags === '1' && card) ? card.querySelector('[data-field="itemList"]') : null;
     // Older saves baked marks into "annotated" without keeping strokes; start from that version, original is still kept.
     var legacy = !p.strokes && p.annotated && p.annotated !== p.original;
     A.base = p.base || (legacy ? p.annotated : p.original);
@@ -1106,8 +1111,15 @@
     var pt = canvasPoint(e);
     if (A.tool === 'tag') {
       var n = A.items.filter(function (it) { return it.t === 'tag'; }).length + 1;
-      A.items.push({ t: 'tag', x: pt.x, y: pt.y, n: n });
+      var tag = { t: 'tag', x: pt.x, y: pt.y, n: n };
+      A.items.push(tag);
       redrawAnnot();
+      if (A.itemsField) {
+        var have = itemValues(A.itemsField)[n - 1] || '';
+        ask('Item ' + n + ' — what is it?', [{ label: 'Skip', value: null }, { label: 'Add to list', value: true, kind: 'primary' }],
+            { placeholder: have || 'e.g. Proposed U Mobile cabinet' })
+          .then(function (t) { if (t && t.trim()) tag.label = t.trim(); });
+      }
       return;
     }
     if (A.tool === 'measure') {
@@ -1116,7 +1128,7 @@
         redrawAnnot(); updateHint();
         if (A.scalePts.length === 2) {
           var px = pxLen(A.scalePts);
-          ask('Real distance between the two points, in metres:', [{ label: 'Cancel', value: null }, { label: 'Set scale', value: true, kind: 'primary' }], { placeholder: 'e.g. 8.4' })
+          ask('Real distance between the two points, in metres:', [{ label: 'Cancel', value: null }, { label: 'Set scale', value: true, kind: 'primary' }], { placeholder: 'e.g. 8.4', mode: 'decimal' })
             .then(function (ans) {
               var m = parseFloat(String(ans || '').replace(',', '.'));
               if (px > 3 && m > 0) { A.scale = m / px; toast('Scale set — now tap along the route.', 'ok'); }
@@ -1186,6 +1198,16 @@
       var cap = annotCaption.value.trim();
       if (!cap && measured) cap = 'Measured route: ' + fmtM(measured);
       if (cap) p.caption = cap; else delete p.caption;
+      if (A.itemsField) {
+        var tags = A.items.filter(function (it) { return it.t === 'tag'; });
+        if (tags.length) {
+          var vals = itemValues(A.itemsField);
+          while (vals.length < tags.length) vals.push('');
+          tags.forEach(function (t) { if (t.label) vals[t.n - 1] = t.label; });
+          renderItems(A.itemsField, vals);
+          A.itemsField.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
       if (measured && A.target) {
         A.target.value = fmtM(measured);
         A.target.dispatchEvent(new Event('input', { bubbles: true }));
@@ -2196,6 +2218,7 @@
     var name = e.roomName ? ' – ' + withBlock(e.roomName, e.block).toUpperCase() : '';
     X.H2(base + '.' + (++n) + '   PROPOSED EQUIPMENT LOCATION' + name);
     X.photos(X.photoItems(proposedSchema, e, ['overallView']));
+    X.itemTable(e.itemList);
     X.kv(X.infoRows(proposedSchema, e, ['roomName', 'block']));
     X.photos(X.photoItems(proposedSchema, e, null, ['overallView', 'floorPlan']));
     var plan = X.photoItems(proposedSchema, e, ['floorPlan']);
@@ -2207,6 +2230,7 @@
     var what = e.equipHere ? 'PROPOSED ' + e.equipHere.toUpperCase() : 'PROPOSED RHUB & RRU';
     X.H2(base + '.' + (++n) + '   ' + what + (e.sector ? ' ' + e.sector.toUpperCase() : '') + ' LOCATION' + name);
     X.photos(X.photoItems(rruSchema, e, ['referencePhoto']));
+    X.itemTable(e.itemList);
     X.kv(X.infoRows(rruSchema, e, ['riserName', 'block']));
     X.photos(X.photoItems(rruSchema, e, null, ['referencePhoto', 'layoutPhoto']));
     var plan = X.photoItems(rruSchema, e, ['layoutPhoto']);
@@ -2507,12 +2531,16 @@
       M(!hasPh(e.overallView), nm + ': overall photo', TAB.equip);
       M(!hasPh(e.doorPhoto), nm + ': door photo', TAB.equip);
       M(!hasPh(e.floorPlan), nm + ': floor plan with room marked', TAB.equip);
+      var t1 = tagCount(e.overallView), n1 = lineCount(e.itemList);
+      W(t1 && t1 !== n1, nm + ': photo has ' + t1 + ' number tags but the item list has ' + n1 + ' items', TAB.equip);
     });
     W(!risers.length, 'No RHUB / RRU riser added', TAB.equip);
     risers.forEach(function (e, i) {
       var nm = e.riserName || 'Riser ' + (i + 1);
       M(blank(e.riserName), 'Riser ' + (i + 1) + ': riser name & floor', TAB.equip);
       M(!hasPh(e.referencePhoto), nm + ': riser photo', TAB.equip);
+      var t2 = tagCount(e.referencePhoto), n2 = lineCount(e.itemList);
+      W(t2 && t2 !== n2, nm + ': photo has ' + t2 + ' number tags but the item list has ' + n2 + ' items', TAB.equip);
       M(!hasPh(e.doorPhoto), nm + ': door photo', TAB.equip);
     });
     var blockNames = filledOf(d.blocks, blockSchema).map(function (b) { return String(b.name || '').trim().toLowerCase(); }).filter(Boolean);
