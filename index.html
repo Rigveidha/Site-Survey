@@ -1065,7 +1065,7 @@
       else t = 'Step 2 of 2 — tap along the cable route. ' + (A.route.length > 1 ? 'Route: ' + fmtM(routeM()) + '. ' : '') +
                'Undo removes the last point.' + (A.target ? ' Save puts the length in the form.' : '');
     } else if (A.tool === 'tag') t = A.itemsField ? 'Tap each item to drop 1, 2, 3… and type its name; it goes into the numbered list under the photo.' : 'Tap to drop numbered tags 1, 2, 3… The original photo is always kept.';
-    else if (A.tool === 'items') t = 'Tap + Add equipment to place an item; it is numbered and named for you. Drag to move; use the buttons to resize, rotate, flip or switch 2D / 3D.';
+    else if (A.tool === 'items') t = 'Tap + Add equipment to place an item; it is numbered and named for you. Drag to move; pinch with two fingers to resize and twist to rotate; the buttons flip or switch 2D / 3D.';
     else t = 'Draw on the photo with your finger. The original photo is always kept.';
     annotHint.textContent = t;
   }
@@ -1154,9 +1154,25 @@
     return { x: Math.round((e.clientX - rect.left) * (annotCanvas.width / rect.width)), y: Math.round((e.clientY - rect.top) * (annotCanvas.height / rect.height)) };
   }
   annotCanvas.style.touchAction = 'none';
+  // Two-finger pinch on a selected equipment item: spread / squeeze to resize, twist to rotate
+  var touchPts = {};
+  function pinchGeom() {
+    var ids = Object.keys(touchPts); if (ids.length < 2) return null;
+    var p1 = touchPts[ids[0]], p2 = touchPts[ids[1]];
+    return { d: Math.hypot(p2.x - p1.x, p2.y - p1.y), a: Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI };
+  }
+  function releaseTouch(e) { delete touchPts[e.pointerId]; if (Object.keys(touchPts).length < 2) A.pinch = null; }
   annotCanvas.addEventListener('pointerdown', function (e) {
     e.preventDefault();
     var pt = canvasPoint(e);
+    touchPts[e.pointerId] = pt;
+    if (A.tool === 'items' && A.sel && Object.keys(touchPts).length === 2) {
+      var g0 = pinchGeom();
+      A.pinch = { d0: Math.max(1, g0.d), a0: g0.a, s0: A.sel.s, r0: A.sel.rot || 0 };
+      A.drag = null;
+      try { annotCanvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      return;
+    }
     if (A.tool === 'items') {
       var hit = null;
       for (var hi = A.items.length - 1; hi >= 0; hi--) { if (A.items[hi].t === 'obj' && equipHit(A.items[hi], pt, annotCanvas.width)) { hit = A.items[hi]; break; } }
@@ -1205,6 +1221,15 @@
     try { annotCanvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
   });
   annotCanvas.addEventListener('pointermove', function (e) {
+    if (touchPts[e.pointerId]) touchPts[e.pointerId] = canvasPoint(e);
+    if (A.tool === 'items' && A.pinch && A.sel) {
+      e.preventDefault();
+      var g1 = pinchGeom(); if (!g1) return;
+      A.sel.s = Math.max(0.2, Math.min(6, A.pinch.s0 * g1.d / A.pinch.d0));
+      A.sel.rot = Math.round(A.pinch.r0 + (g1.a - A.pinch.a0));
+      redrawAnnot();
+      return;
+    }
     if (A.tool === 'items' && A.drag && A.sel) {
       e.preventDefault();
       var mp = canvasPoint(e);
@@ -1222,8 +1247,8 @@
     if (A.drawing && A.drawing.pts.length < 2) A.items.pop();
     A.drawing = null;
   }
-  annotCanvas.addEventListener('pointerup', endDraw);
-  annotCanvas.addEventListener('pointercancel', endDraw);
+  annotCanvas.addEventListener('pointerup', function (e) { releaseTouch(e); endDraw(); });
+  annotCanvas.addEventListener('pointercancel', function (e) { releaseTouch(e); endDraw(); });
 
   function closeAnnot() { paletteEl.hidden = true; itemBar.hidden = true; annotOverlay.hidden = true; A.grid = null; A.idx = -1; A.target = null; A.route = []; A.scalePts = []; }
   $('annotUndo').addEventListener('click', function () {
@@ -1289,19 +1314,19 @@
   // ---------------- Equipment library: drop equipment drawings on a photo, each numbered and named ----------------
   // Built-in drawings follow the TP style (translucent boxes); sizes are fractions of the photo width.
   var EQUIP = [
-    { k: 'cabinet', name: 'Proposed {op} cabinet', label: 'Cabinet', w: 0.14, h: 0.36, d: 0.08, c: [150, 155, 165], a: 0.38 },
-    { k: 'pdu', name: 'Proposed {op} PDU', label: 'PDU', w: 0.12, h: 0.2, d: 0.06, c: [181, 101, 43], a: 0.72 },
-    { k: 'submeter', name: 'Proposed submeter', label: 'Submeter', w: 0.07, h: 0.07, d: 0.03, c: [160, 122, 26], a: 0.85 },
-    { k: 'odf', name: 'Proposed 12C ODF wall mounted', label: 'ODF', w: 0.08, h: 0.09, d: 0.04, c: [107, 63, 160], a: 0.85, text: 'ODF' },
-    { k: 'busbar', name: 'Proposed grounding busbar', label: 'Busbar', w: 0.12, h: 0.022, d: 0.015, c: [58, 165, 74], a: 0.9 },
-    { k: 'ladder', name: 'Proposed 200mm cable ladder', label: 'Cable ladder', w: 0.045, h: 0.45, d: 0.03, c: [70, 74, 82], a: 1, style: 'ladder' },
-    { k: 'tray', name: 'Proposed 200mm cable tray', label: 'Cable tray', w: 0.05, h: 0.45, d: 0.02, c: [122, 193, 67], a: 0.85 },
+    { k: 'cabinet', name: 'Proposed {op} cabinet', label: 'Cabinet', w: 0.14, h: 0.36, d: 0.08, c: [200, 204, 210], a: 0.38 },
+    { k: 'pdu', name: 'Proposed {op} PDU', label: 'PDU', w: 0.12, h: 0.2, d: 0.06, c: [196, 199, 204], a: 0.72 },
+    { k: 'submeter', name: 'Proposed submeter', label: 'Submeter', w: 0.07, h: 0.07, d: 0.02, c: [222, 224, 228], a: 0.85 },
+    { k: 'odf', name: 'Proposed 12C ODF wall mounted', label: 'ODF', w: 0.08, h: 0.09, d: 0.04, c: [70, 74, 82], a: 0.85, text: 'ODF' },
+    { k: 'busbar', name: 'Proposed grounding busbar', label: 'Busbar', w: 0.12, h: 0.022, d: 0.015, c: [184, 115, 51], a: 0.9 },
+    { k: 'ladder', name: 'Proposed 200mm cable ladder', label: 'Cable ladder', w: 0.045, h: 0.45, d: 0.03, c: [180, 186, 194], a: 1, style: 'ladder' },
+    { k: 'tray', name: 'Proposed 200mm cable tray', label: 'Cable tray', w: 0.05, h: 0.45, d: 0.02, c: [190, 195, 200], a: 0.85 },
     { k: 'trunking', name: 'Proposed 50x50mm trunking', label: 'Trunking', w: 0.022, h: 0.4, d: 0.018, c: [240, 122, 30], a: 0.9 },
-    { k: 'rhub', name: 'Proposed RHUB location', label: 'RHUB', w: 0.18, h: 0.1, d: 0.08, c: [47, 111, 209], a: 0.8 },
-    { k: 'rru', name: 'Proposed RRU location', label: 'RRU', w: 0.07, h: 0.16, d: 0.05, c: [47, 111, 209], a: 0.8 },
-    { k: 'subdb', name: 'Proposed AC SubDB', label: 'AC SubDB', w: 0.1, h: 0.06, d: 0.03, c: [210, 58, 42], a: 0.85 },
-    { k: 'sso', name: 'Proposed SSO-gang', label: 'SSO-gang', w: 0.05, h: 0.05, d: 0.02, c: [31, 163, 214], a: 0.9 },
-    { k: 'gps', name: 'Proposed GPS antenna', label: 'GPS antenna', w: 0.045, h: 0.075, d: 0.03, c: [225, 228, 233], a: 1, style: 'gps' }
+    { k: 'rhub', name: 'Proposed RHUB location', label: 'RHUB', w: 0.18, h: 0.1, d: 0.08, c: [70, 74, 82], a: 0.8 },
+    { k: 'rru', name: 'Proposed RRU location', label: 'RRU', w: 0.07, h: 0.16, d: 0.05, c: [80, 84, 92], a: 0.8 },
+    { k: 'subdb', name: 'Proposed AC SubDB', label: 'AC SubDB', w: 0.1, h: 0.06, d: 0.03, c: [196, 199, 204], a: 0.85 },
+    { k: 'sso', name: 'Proposed SSO-gang', label: 'SSO-gang', w: 0.05, h: 0.05, d: 0.012, c: [235, 236, 238], a: 0.9 },
+    { k: 'gps', name: 'Proposed GPS antenna', label: 'GPS antenna', w: 0.045, h: 0.075, d: 0.03, c: [220, 223, 227], a: 1, style: 'gps' }
   ];
   function equipDef(k) { for (var i = 0; i < EQUIP.length; i++) if (EQUIP[i].k === k) return EQUIP[i]; return null; }
   function rgba(c, a, f) { f = f || 1; return 'rgba(' + Math.round(c[0] * f) + ',' + Math.round(c[1] * f) + ',' + Math.round(c[2] * f) + ',' + a + ')'; }
@@ -1338,46 +1363,105 @@
       ctx.restore();
       return;
     }
-    var def = equipDef(o.k), c = def.c, a = def.a;
+    // ----- realistic built-in drawings: front face + (in 3D) side and top faces -----
+    var def = equipDef(o.k);
     var d = o.d3 ? sz.d : 0, ox = d * 0.75, oy = -d * 0.55;
     ctx.translate(-ox / 2, -oy / 2);
     var x0 = -w / 2, y0 = -h / 2, x1 = w / 2, y1 = h / 2;
-    var edge = rgba(c, 1, 0.45);
-    function poly(pts, fill) {
-      ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
-      for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-      ctx.closePath(); if (fill) { ctx.fillStyle = fill; ctx.fill(); } ctx.strokeStyle = edge; ctx.stroke();
+    var dark = 'rgba(40,43,48,0.95)';
+    function rr(x, y, ww, hh, r) { r = Math.min(r, ww / 2, hh / 2); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + ww, y, x + ww, y + hh, r); ctx.arcTo(x + ww, y + hh, x, y + hh, r); ctx.arcTo(x, y + hh, x, y, r); ctx.arcTo(x, y, x + ww, y, r); ctx.closePath(); }
+    function lin(xa, ya, xb, yb, stops) { var g = ctx.createLinearGradient(xa, ya, xb, yb); stops.forEach(function (s) { g.addColorStop(s[0], s[1]); }); return g; }
+    function rgb(c, f) { return 'rgb(' + Math.min(255, Math.round(c[0] * f)) + ',' + Math.min(255, Math.round(c[1] * f)) + ',' + Math.min(255, Math.round(c[2] * f)) + ')'; }
+    function quad(pts, fill) { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = dark; ctx.lineWidth = lw * 0.7; ctx.stroke(); }
+    function steel(c) { return lin(x0, y0, x1, y1, [[0, rgb(c, 1.12)], [0.45, rgb(c, 1)], [1, rgb(c, 0.82)]]); }
+    var c = def.c;
+    // 3D side + top faces (ladder draws its own depth)
+    if (d && def.style !== 'ladder' && def.style !== 'gps') {
+      quad([[x1, y0], [x1 + ox, y0 + oy], [x1 + ox, y1 + oy], [x1, y1]], lin(x1, 0, x1 + ox, 0, [[0, rgb(c, 0.72)], [1, rgb(c, 0.58)]]));
+      quad([[x0, y0], [x1, y0], [x1 + ox, y0 + oy], [x0 + ox, y0 + oy]], lin(0, y0 + oy, 0, y0, [[0, rgb(c, 1.18)], [1, rgb(c, 1.02)]]));
     }
-    if (def.style === 'ladder') {
-      var rail = Math.max(lw * 1.6, w * 0.14);
-      var drawLadder = function (dx, dy, f) {
-        ctx.fillStyle = rgba(c, 1, f); ctx.strokeStyle = rgba(c, 1, f * 0.6);
+    ctx.lineWidth = lw;
+    var k = o.k;
+    if (k === 'cabinet') {
+      rr(x0, y0, w, h, w * 0.03); ctx.fillStyle = steel(c); ctx.fill(); ctx.strokeStyle = dark; ctx.stroke();
+      rr(x0 + w * 0.07, y0 + h * 0.035, w * 0.86, h * 0.93, w * 0.02); ctx.strokeStyle = 'rgba(60,64,70,0.75)'; ctx.lineWidth = lw * 0.8; ctx.stroke();
+      ctx.fillStyle = 'rgba(55,58,64,0.85)';
+      for (var v = 0; v < 7; v++) { rr(x0 + w * 0.22, y0 + h * (0.07 + v * 0.018), w * 0.56, h * 0.007, h * 0.004); ctx.fill(); rr(x0 + w * 0.22, y0 + h * (0.82 + v * 0.018), w * 0.56, h * 0.007, h * 0.004); ctx.fill(); }
+      ctx.fillStyle = lin(0, y0 + h * 0.42, 0, y0 + h * 0.56, [[0, '#2b2e33'], [1, '#55595f']]); rr(x0 + w * 0.8, y0 + h * 0.42, w * 0.07, h * 0.14, w * 0.03); ctx.fill();
+      ctx.fillStyle = 'rgba(245,247,250,0.9)'; rr(x0 + w * 0.32, y0 + h * 0.2, w * 0.36, h * 0.045, 2); ctx.fill();
+    } else if (k === 'pdu' || k === 'subdb') {
+      rr(x0, y0, w, h, w * 0.05); ctx.fillStyle = steel(c); ctx.fill(); ctx.strokeStyle = dark; ctx.stroke();
+      var wy = k === 'pdu' ? 0.16 : 0.18, wh = k === 'pdu' ? 0.42 : 0.5;
+      rr(x0 + w * 0.1, y0 + h * wy, w * 0.8, h * wh, w * 0.03); ctx.fillStyle = 'rgba(70,88,102,0.55)'; ctx.fill(); ctx.strokeStyle = 'rgba(40,45,52,0.9)'; ctx.lineWidth = lw * 0.7; ctx.stroke();
+      var nb = k === 'pdu' ? 6 : 4, bw = w * 0.7 / nb;
+      for (var b = 0; b < nb; b++) {
+        var bx = x0 + w * 0.15 + b * bw, by = y0 + h * (wy + wh * 0.18);
+        ctx.fillStyle = '#f4f5f7'; ctx.fillRect(bx, by, bw * 0.8, h * wh * 0.64);
+        ctx.fillStyle = '#26292e'; ctx.fillRect(bx + bw * 0.22, by + h * wh * 0.2, bw * 0.36, h * wh * 0.22);
+      }
+      ctx.fillStyle = '#d8dbe0'; rr(x0 + w * 0.3, y0 + h * (wy + wh + 0.08), w * 0.4, h * 0.06, 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x0 + w * 0.82, y0 + h * 0.86, Math.max(2, w * 0.045), 0, Math.PI * 2); ctx.fillStyle = '#3a3e45'; ctx.fill();
+    } else if (k === 'submeter') {
+      rr(x0, y0, w, h, w * 0.08); ctx.fillStyle = steel(c); ctx.fill(); ctx.strokeStyle = dark; ctx.stroke();
+      rr(x0 + w * 0.15, y0 + h * 0.15, w * 0.7, h * 0.3, w * 0.04); ctx.fillStyle = '#9fc39a'; ctx.fill(); ctx.strokeStyle = '#3a4a3a'; ctx.lineWidth = lw * 0.6; ctx.stroke();
+      ctx.fillStyle = '#1f2a1f'; ctx.font = 'bold ' + Math.max(6, Math.round(h * 0.16)) + 'px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('0128.4', 0, y0 + h * 0.3);
+      ctx.fillStyle = '#e6e8eb'; rr(x0 + w * 0.12, y0 + h * 0.62, w * 0.76, h * 0.26, w * 0.03); ctx.fill();
+      ctx.fillStyle = '#d04a3a'; ctx.beginPath(); ctx.arc(x0 + w * 0.8, y0 + h * 0.52, Math.max(1.5, w * 0.035), 0, Math.PI * 2); ctx.fill();
+    } else if (k === 'odf') {
+      rr(x0, y0, w, h, w * 0.05); ctx.fillStyle = steel(c); ctx.fill(); ctx.strokeStyle = dark; ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(x0 + w * 0.05, y0 + h * 0.05, w * 0.9, h * 0.12);
+      for (var pr = 0; pr < 2; pr++) for (var pc = 0; pc < 6; pc++) {
+        ctx.fillStyle = '#2f7fd6'; ctx.fillRect(x0 + w * (0.12 + pc * 0.13), y0 + h * (0.42 + pr * 0.2), w * 0.09, h * 0.12);
+        ctx.fillStyle = '#cfe3fa'; ctx.fillRect(x0 + w * (0.145 + pc * 0.13), y0 + h * (0.455 + pr * 0.2), w * 0.04, h * 0.05);
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.font = 'bold ' + Math.max(6, Math.round(h * 0.15)) + 'px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('ODF 12C', x0 + w * 0.1, y0 + h * 0.27);
+    } else if (k === 'busbar') {
+      var insW = w * 0.08;
+      ctx.fillStyle = '#e9e4d8'; rr(x0, y0 - h * 0.2, insW, h * 1.4, 2); ctx.fill(); rr(x1 - insW, y0 - h * 0.2, insW, h * 1.4, 2); ctx.fill();
+      rr(x0 + insW * 0.6, y0, w - insW * 1.2, h, h * 0.2); ctx.fillStyle = lin(0, y0, 0, y1, [[0, '#e8a46a'], [0.5, '#b8733a'], [1, '#8c5527']]); ctx.fill(); ctx.strokeStyle = '#5e3818'; ctx.lineWidth = lw * 0.6; ctx.stroke();
+      ctx.fillStyle = '#4a2c14'; for (var hb = 0; hb < 9; hb++) { ctx.beginPath(); ctx.arc(x0 + w * (0.17 + hb * 0.083), 0, Math.max(1, h * 0.18), 0, Math.PI * 2); ctx.fill(); }
+    } else if (def.style === 'ladder') {
+      var rail = Math.max(lw * 1.6, w * 0.16);
+      var silver = function (dx, dy, f) { return lin(x0 + dx, 0, x0 + dx + rail, 0, [[0, rgb([205, 210, 216], 1.08 * f)], [1, rgb([150, 156, 164], f)]]); };
+      var ladderAt = function (dx, dy, f) {
+        ctx.fillStyle = silver(dx, dy, f);
         ctx.fillRect(x0 + dx, y0 + dy, rail, h); ctx.fillRect(x1 - rail + dx, y0 + dy, rail, h);
-        for (var r = 1; r < 10; r++) { var yy = y0 + dy + h * r / 10; ctx.fillRect(x0 + dx, yy - rail * 0.35, w, rail * 0.7); }
+        ctx.fillStyle = rgb([170, 176, 184], f);
+        for (var r = 1; r < 11; r++) { var yy = y0 + dy + h * r / 11; ctx.fillRect(x0 + dx + rail, yy - rail * 0.3, w - rail * 2, rail * 0.6); }
+        ctx.strokeStyle = 'rgba(70,74,80,0.9)'; ctx.lineWidth = lw * 0.5; ctx.strokeRect(x0 + dx, y0 + dy, rail, h); ctx.strokeRect(x1 - rail + dx, y0 + dy, rail, h);
       };
-      if (d) drawLadder(ox, oy, 1.7);
-      drawLadder(0, 0, 1);
-      ctx.restore();
-      return;
-    }
-    if (d) {
-      poly([[x1, y0], [x1 + ox, y0 + oy], [x1 + ox, y1 + oy], [x1, y1]], rgba(c, Math.min(1, a + 0.1), 0.7));
-      poly([[x0, y0], [x1, y0], [x1 + ox, y0 + oy], [x0 + ox, y0 + oy]], rgba(c, Math.min(1, a + 0.1), 1.15));
-    }
-    if (def.style === 'gps') {
-      poly([[x0, y0 + h * 0.45], [x1, y0 + h * 0.45], [x1, y1], [x0, y1]], rgba(c, a, 0.92));
-      ctx.beginPath(); ctx.ellipse(0, y0 + h * 0.45, w / 2, h * 0.45, 0, Math.PI, 0); ctx.closePath();
-      ctx.fillStyle = rgba(c, a, 1); ctx.fill(); ctx.strokeStyle = 'rgba(80,84,92,1)'; ctx.stroke();
-    } else {
-      poly([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], rgba(c, a, 1));
-      if (o.k === 'tray') {
-        ctx.strokeStyle = rgba(c, 0.9, 0.6); ctx.lineWidth = lw * 0.6;
-        for (var m = 1; m < 12; m++) { var my = y0 + h * m / 12; ctx.beginPath(); ctx.moveTo(x0, my); ctx.lineTo(x1, my); ctx.stroke(); }
-      }
-      if (def.text) {
-        ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.font = 'bold ' + Math.max(9, Math.round(h * 0.28)) + 'px Arial, sans-serif';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(def.text, 0, 0);
-      }
+      if (d) ladderAt(ox, oy, 0.8);
+      ladderAt(0, 0, 1);
+    } else if (k === 'tray') {
+      ctx.fillStyle = lin(x0, 0, x1, 0, [[0, '#dfe3e8'], [0.5, '#b9bfc7'], [1, '#9aa1aa']]); ctx.fillRect(x0, y0, w, h); ctx.strokeStyle = dark; ctx.lineWidth = lw * 0.7; ctx.strokeRect(x0, y0, w, h);
+      ctx.fillStyle = 'rgba(60,64,70,0.55)';
+      for (var ty = 0; ty < 22; ty++) for (var tx = 0; tx < 2; tx++) { rr(x0 + w * (0.2 + tx * 0.36), y0 + h * (0.02 + ty * 0.044), w * 0.24, h * 0.022, 1.5); ctx.fill(); }
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(x0, y0, w * 0.08, h);
+    } else if (k === 'trunking') {
+      ctx.fillStyle = lin(x0, 0, x1, 0, [[0, '#ffad5c'], [0.5, '#f07a1e'], [1, '#c45d10']]); rr(x0, y0, w, h, w * 0.12); ctx.fill(); ctx.strokeStyle = '#8a3f08'; ctx.lineWidth = lw * 0.6; ctx.stroke();
+      ctx.strokeStyle = 'rgba(120,55,10,0.7)'; ctx.beginPath(); ctx.moveTo(x0 + w * 0.2, y0); ctx.lineTo(x0 + w * 0.2, y1); ctx.stroke();
+      for (var tj = 1; tj < 4; tj++) { ctx.beginPath(); ctx.moveTo(x0, y0 + h * tj / 4); ctx.lineTo(x1, y0 + h * tj / 4); ctx.stroke(); }
+    } else if (k === 'rhub') {
+      rr(x0, y0, w, h, w * 0.03); ctx.fillStyle = lin(x0, y0, x0, y1, [[0, '#5d626b'], [1, '#383c43']]); ctx.fill(); ctx.strokeStyle = '#1b1d21'; ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = lw * 0.6; for (var f = 1; f < 8; f++) { ctx.beginPath(); ctx.moveTo(x0 + w * 0.58 + f * w * 0.05, y0 + h * 0.15); ctx.lineTo(x0 + w * 0.58 + f * w * 0.05, y1 - h * 0.15); ctx.stroke(); }
+      for (var rp = 0; rp < 8; rp++) { ctx.fillStyle = '#c9ced6'; ctx.fillRect(x0 + w * (0.06 + rp * 0.06), y0 + h * 0.52, w * 0.045, h * 0.2); ctx.fillStyle = '#1b1d21'; ctx.fillRect(x0 + w * (0.07 + rp * 0.06), y0 + h * 0.56, w * 0.025, h * 0.1); }
+      ctx.fillStyle = '#43d17a'; for (var le = 0; le < 3; le++) { ctx.beginPath(); ctx.arc(x0 + w * (0.08 + le * 0.06), y0 + h * 0.28, Math.max(1.2, h * 0.04), 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = 'bold ' + Math.max(5, Math.round(h * 0.16)) + 'px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('RHUB', x0 + w * 0.3, y0 + h * 0.28);
+    } else if (k === 'rru') {
+      rr(x0, y0, w, h, w * 0.06); ctx.fillStyle = lin(x0, 0, x1, 0, [[0, '#6a6f78'], [1, '#3a3e45']]); ctx.fill(); ctx.strokeStyle = '#1b1d21'; ctx.stroke();
+      ctx.strokeStyle = 'rgba(20,22,26,0.7)'; ctx.lineWidth = lw * 0.7; for (var fi = 1; fi < 9; fi++) { ctx.beginPath(); ctx.moveTo(x0 + w * fi / 9, y0 + h * 0.08); ctx.lineTo(x0 + w * fi / 9, y1 - h * 0.2); ctx.stroke(); }
+      ctx.fillStyle = '#b9bec6'; for (var cn = 0; cn < 3; cn++) { ctx.beginPath(); ctx.arc(x0 + w * (0.25 + cn * 0.25), y1 - h * 0.09, Math.max(1.5, w * 0.08), 0, Math.PI * 2); ctx.fill(); }
+    } else if (k === 'sso') {
+      rr(x0, y0, w, h, w * 0.12); ctx.fillStyle = lin(x0, y0, x1, y1, [[0, '#ffffff'], [1, '#dcdfe3']]); ctx.fill(); ctx.strokeStyle = '#8a8f96'; ctx.lineWidth = lw * 0.6; ctx.stroke();
+      ctx.fillStyle = '#2b2e33';
+      ctx.fillRect(x0 + w * 0.56, y0 + h * 0.24, w * 0.12, h * 0.2); ctx.fillRect(x0 + w * 0.44, y0 + h * 0.6, w * 0.1, h * 0.14); ctx.fillRect(x0 + w * 0.72, y0 + h * 0.6, w * 0.1, h * 0.14);
+      rr(x0 + w * 0.12, y0 + h * 0.3, w * 0.18, h * 0.36, 2); ctx.fillStyle = '#eef0f2'; ctx.fill(); ctx.strokeStyle = '#8a8f96'; ctx.stroke();
+      ctx.fillStyle = '#d23a2a'; ctx.fillRect(x0 + w * 0.15, y0 + h * 0.33, w * 0.12, h * 0.08);
+    } else if (k === 'gps') {
+      ctx.fillStyle = lin(x0, 0, x1, 0, [[0, '#c3c8cf'], [1, '#868c95']]); ctx.fillRect(-w * 0.1, y0 + h * 0.45, w * 0.2, h * 0.55);
+      ctx.fillRect(-w * 0.3, y1 - h * 0.08, w * 0.6, h * 0.08);
+      ctx.beginPath(); ctx.ellipse(0, y0 + h * 0.42, w / 2, h * 0.42, 0, Math.PI, 0); ctx.lineTo(x1, y0 + h * 0.5); ctx.lineTo(x0, y0 + h * 0.5); ctx.closePath();
+      ctx.fillStyle = lin(x0, y0, x1, y0 + h * 0.5, [[0, '#ffffff'], [1, '#d5d9de']]); ctx.fill(); ctx.strokeStyle = '#7f858d'; ctx.lineWidth = lw * 0.7; ctx.stroke();
     }
     ctx.restore();
   }
