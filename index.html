@@ -331,6 +331,28 @@
   .annot-tools { display: flex; gap: 6px; }
   .annot-tools button { padding: 9px 14px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); color: #fff; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
   .annot-tools button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
+  .annot-tools { flex-wrap: wrap; justify-content: center; }
+  .item-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; max-width: 560px; }
+  .item-bar button { padding: 8px 12px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #fff; font-size: 0.86rem; font-weight: 700; cursor: pointer; min-width: 40px; }
+  .item-bar button:disabled { opacity: 0.35; cursor: default; }
+  .item-bar .ib-add { background: var(--accent); border-color: var(--accent); }
+  .item-bar .ib-del { color: #FFB4AB; }
+  .item-bar .ib-name { color: #E7EAF0; font-size: 0.8rem; font-weight: 600; flex: 1 1 160px; text-align: center; }
+  .item-bar .ib-tools { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .pal-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(8,10,14,0.6); display: flex; align-items: flex-end; justify-content: center; }
+  .pal-overlay[hidden] { display: none; }
+  .pal-sheet { background: var(--surface); color: var(--ink); width: 100%; max-width: 640px; max-height: 80vh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 14px 16px calc(16px + env(safe-area-inset-bottom)); }
+  .pal-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .pal-head b { font-size: 1rem; }
+  .pal-head span { font-size: 0.78rem; color: var(--ink-muted); flex: 1; }
+  .pal-head button { background: none; border: none; font-size: 1.5rem; color: var(--ink-faint); cursor: pointer; line-height: 1; }
+  .pal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+  .pal-item { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--ink); font-size: 0.74rem; font-weight: 600; cursor: pointer; text-align: center; overflow: hidden; }
+  .pal-item canvas { width: 64px; height: 64px; }
+  .pal-add { border-style: dashed; justify-content: center; color: var(--accent-ink); min-height: 100px; }
+  .pal-add .pal-plus { font-size: 1.6rem; line-height: 1; }
+  .pal-add .tile-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .pal-del { position: absolute; top: 2px; right: 6px; font-size: 1.1rem; color: var(--bad); font-weight: 700; }
   .annot-caption { width: 100%; max-width: 440px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.22); color: #fff; border-radius: 9px; padding: 10px 11px; font-family: inherit; font-size: 0.86rem; }
   .annot-caption::placeholder { color: #9AA3B2; }
   .log-actions .log-pdf { color: var(--accent-ink); border-color: var(--accent-soft); background: var(--accent-soft); }
@@ -408,8 +430,22 @@
     <button type="button" data-tool="pen" aria-pressed="true">Draw</button>
     <button type="button" data-tool="tag" aria-pressed="false">Number tag</button>
     <button type="button" data-tool="measure" aria-pressed="false">Measure</button>
+    <button type="button" data-tool="items" aria-pressed="false">Equipment</button>
   </div>
   <div class="annot-canvas-wrap"><canvas id="annotCanvas"></canvas></div>
+  <div class="item-bar" id="itemBar" hidden>
+    <button type="button" class="ib-add" data-act="add">+ Add equipment</button>
+    <span class="ib-name" id="itemSelName">Tap an item to select it</span>
+    <div class="ib-tools">
+      <button type="button" data-act="smaller" title="Smaller">−</button>
+      <button type="button" data-act="bigger" title="Bigger">+</button>
+      <button type="button" data-act="rotl" title="Rotate left">⟲</button>
+      <button type="button" data-act="rotr" title="Rotate right">⟳</button>
+      <button type="button" data-act="flip" title="Flip sides">⇋</button>
+      <button type="button" data-act="d3" title="Switch 2D / 3D">3D</button>
+      <button type="button" data-act="del" class="ib-del" title="Delete item">Delete</button>
+    </div>
+  </div>
   <input type="text" class="annot-caption" id="annotCaption" placeholder="Caption for the report, e.g. 1 Cabinet · 2 Cable ladder · 3 PDU">
   <p class="annot-hint" id="annotHint"></p>
   <div class="annot-controls">
@@ -418,6 +454,13 @@
     <button type="button" class="ghost" id="annotRevert" hidden>Use original</button>
     <button type="button" id="annotCancel">Cancel</button>
     <button type="button" class="primary" id="annotSave">Save</button>
+  </div>
+</div>
+
+<div class="pal-overlay" id="itemPalette" hidden>
+  <div class="pal-sheet" role="dialog" aria-label="Add equipment">
+    <div class="pal-head"><b>Add equipment</b><span>Placed items are numbered and named for you</span><button type="button" id="palClose" aria-label="Close">×</button></div>
+    <div class="pal-grid"></div>
   </div>
 </div>
 
@@ -774,7 +817,7 @@
         return '<button type="button" data-val="' + esc(o) + '" aria-pressed="false">' + esc(o) + '</button>';
       }).join('') + '</div>';
     } else if (f.type === 'photo') inner = '<div class="photo-grid"' + (f.tags ? ' data-tags="1"' : '') + '></div>' +
-      (f.tags ? '<p class="field-hint">Tap <b>1 2 3</b> on a photo, then tap each item: the app asks its name and adds it to the numbered list below.</p>' : '');
+      (f.tags ? '<p class="field-hint">Tap <b>1 2 3</b> on a photo, then use <b>Equipment</b> to place cabinets, PDU, ODF and more (numbered and named for you), or <b>Number tag</b> to tag items yourself.</p>' : '');
     else if (f.type === 'gps' || f.type === 'gpsphoto') {
       inner = '<div class="gps-row"><input type="text" class="gps-input" inputmode="decimal" autocomplete="off" placeholder="Lat, Long — e.g. 3.2437505, 101.4737994">' +
         '<button type="button" class="gps-btn">' + PIN_SVG + ' Use my location</button></div><span class="gps-value"></span>' +
@@ -1022,6 +1065,7 @@
       else t = 'Step 2 of 2 — tap along the cable route. ' + (A.route.length > 1 ? 'Route: ' + fmtM(routeM()) + '. ' : '') +
                'Undo removes the last point.' + (A.target ? ' Save puts the length in the form.' : '');
     } else if (A.tool === 'tag') t = A.itemsField ? 'Tap each item to drop 1, 2, 3… and type its name; it goes into the numbered list under the photo.' : 'Tap to drop numbered tags 1, 2, 3… The original photo is always kept.';
+    else if (A.tool === 'items') t = 'Tap + Add equipment to place an item; it is numbered and named for you. Drag to move; use the buttons to resize, rotate, flip or switch 2D / 3D.';
     else t = 'Draw on the photo with your finger. The original photo is always kept.';
     annotHint.textContent = t;
   }
@@ -1029,6 +1073,8 @@
     A.tool = t;
     Array.prototype.forEach.call($('annotTools').querySelectorAll('button'), function (b) { b.setAttribute('aria-pressed', b.dataset.tool === t); });
     updateHint(); redrawAnnot();
+    updateItemBar();
+    if (t === 'items' && !A.items.some(function (it) { return it.t === 'obj'; }) && !annotOverlay.hidden) openPalette();
   }
   $('annotTools').addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) setTool(b.dataset.tool); });
 
@@ -1047,7 +1093,7 @@
     var legacy = !p.strokes && p.annotated && p.annotated !== p.original;
     A.base = p.base || (legacy ? p.annotated : p.original);
     A.items = p.strokes ? JSON.parse(JSON.stringify(p.strokes)) : [];
-    A.scale = p.scale || null; A.scalePts = []; A.route = [];
+    A.scale = p.scale || null; A.scalePts = []; A.route = []; A.sel = null; A.drag = null;
     annotCaption.value = p.caption || '';
     $('annotRevert').hidden = A.base === p.original;
     loadAnnotBase(A.base, function () { setTool(opts.tool || 'pen'); annotOverlay.hidden = false; });
@@ -1088,6 +1134,7 @@
     var mark = getComputedStyle(document.documentElement).getPropertyValue('--mark').trim() || '#E1341E';
     A.items.forEach(function (it) {
       if (it.t === 'tag') { drawTag(it); return; }
+      if (it.t === 'obj') { drawEquip(actx, it, annotCanvas.width); var tp = equipTagPos(it, annotCanvas.width); drawTag({ x: tp.x, y: tp.y, n: it.n }); return; }
       if (it.t === 'route') { drawRoute(it.pts, it.m, mark); return; }
       if (!it.pts || it.pts.length < 2) return;
       actx.strokeStyle = mark;
@@ -1100,6 +1147,7 @@
     });
     if (A.route.length) drawRoute(A.route, routeM(), mark);
     if (!forExport && A.tool === 'measure' && A.scalePts.length) drawRoute(A.scalePts, 0, '#1E6FD9');
+    if (!forExport && A.tool === 'items' && A.sel && A.items.indexOf(A.sel) > -1) drawEquipSel(A.sel, annotCanvas.width);
   }
   function canvasPoint(e) {
     var rect = annotCanvas.getBoundingClientRect();
@@ -1109,8 +1157,17 @@
   annotCanvas.addEventListener('pointerdown', function (e) {
     e.preventDefault();
     var pt = canvasPoint(e);
+    if (A.tool === 'items') {
+      var hit = null;
+      for (var hi = A.items.length - 1; hi >= 0; hi--) { if (A.items[hi].t === 'obj' && equipHit(A.items[hi], pt, annotCanvas.width)) { hit = A.items[hi]; break; } }
+      A.sel = hit;
+      A.drag = hit ? { dx: pt.x - hit.x, dy: pt.y - hit.y } : null;
+      if (hit) { try { annotCanvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } }
+      redrawAnnot(); updateItemBar();
+      return;
+    }
     if (A.tool === 'tag') {
-      var n = A.items.filter(function (it) { return it.t === 'tag'; }).length + 1;
+      var n = numberedItems().length + 1;
       var tag = { t: 'tag', x: pt.x, y: pt.y, n: n };
       A.items.push(tag);
       redrawAnnot();
@@ -1118,7 +1175,7 @@
         var have = itemValues(A.itemsField)[n - 1] || '';
         ask('Item ' + n + ' — what is it?', [{ label: 'Skip', value: null }, { label: 'Add to list', value: true, kind: 'primary' }],
             { placeholder: have || 'e.g. Proposed U Mobile cabinet' })
-          .then(function (t) { if (t && t.trim()) tag.label = t.trim(); });
+          .then(function (t) { if (t && t.trim()) { tag.label = t.trim(); tag.fresh = true; } });
       }
       return;
     }
@@ -1148,19 +1205,27 @@
     try { annotCanvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
   });
   annotCanvas.addEventListener('pointermove', function (e) {
+    if (A.tool === 'items' && A.drag && A.sel) {
+      e.preventDefault();
+      var mp = canvasPoint(e);
+      A.sel.x = mp.x - A.drag.dx; A.sel.y = mp.y - A.drag.dy;
+      redrawAnnot();
+      return;
+    }
     if (!A.drawing) return;
     e.preventDefault();
     A.drawing.pts.push(canvasPoint(e));
     redrawAnnot();
   });
   function endDraw() {
+    A.drag = null;
     if (A.drawing && A.drawing.pts.length < 2) A.items.pop();
     A.drawing = null;
   }
   annotCanvas.addEventListener('pointerup', endDraw);
   annotCanvas.addEventListener('pointercancel', endDraw);
 
-  function closeAnnot() { annotOverlay.hidden = true; A.grid = null; A.idx = -1; A.target = null; A.route = []; A.scalePts = []; }
+  function closeAnnot() { paletteEl.hidden = true; itemBar.hidden = true; annotOverlay.hidden = true; A.grid = null; A.idx = -1; A.target = null; A.route = []; A.scalePts = []; }
   $('annotUndo').addEventListener('click', function () {
     if (A.tool === 'measure') {
       if (A.route.length) A.route.pop();
@@ -1170,8 +1235,8 @@
         return;
       }
       else A.items.pop();
-    } else A.items.pop();
-    redrawAnnot(); updateHint();
+    } else { var gone = A.items.pop(); if (gone === A.sel) A.sel = null; renumberMarks(); }
+    redrawAnnot(); updateHint(); updateItemBar();
   });
   $('annotClear').addEventListener('click', function () { A.items = []; A.route = []; A.scalePts = []; redrawAnnot(); updateHint(); });
   $('annotRevert').addEventListener('click', function () {
@@ -1198,16 +1263,18 @@
       var cap = annotCaption.value.trim();
       if (!cap && measured) cap = 'Measured route: ' + fmtM(measured);
       if (cap) p.caption = cap; else delete p.caption;
+      var clearFresh = function () { (p.strokes || []).forEach(function (it) { delete it.fresh; }); };
       if (A.itemsField) {
-        var tags = A.items.filter(function (it) { return it.t === 'tag'; });
+        var tags = A.items.filter(function (it) { return it.t === 'tag' || it.t === 'obj'; });
         if (tags.length) {
           var vals = itemValues(A.itemsField);
           while (vals.length < tags.length) vals.push('');
-          tags.forEach(function (t) { if (t.label) vals[t.n - 1] = t.label; });
+          tags.forEach(function (t) { if (t.label && (t.fresh || !vals[t.n - 1])) vals[t.n - 1] = t.label; });
           renderItems(A.itemsField, vals);
           A.itemsField.dispatchEvent(new Event('input', { bubbles: true }));
         }
       }
+      clearFresh();
       if (measured && A.target) {
         A.target.value = fmtM(measured);
         A.target.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1217,6 +1284,241 @@
       scheduleDraft();
     }
     closeAnnot();
+  });
+
+  // ---------------- Equipment library: drop equipment drawings on a photo, each numbered and named ----------------
+  // Built-in drawings follow the TP style (translucent boxes); sizes are fractions of the photo width.
+  var EQUIP = [
+    { k: 'cabinet', name: 'Proposed {op} cabinet', label: 'Cabinet', w: 0.14, h: 0.36, d: 0.08, c: [150, 155, 165], a: 0.38 },
+    { k: 'pdu', name: 'Proposed {op} PDU', label: 'PDU', w: 0.12, h: 0.2, d: 0.06, c: [181, 101, 43], a: 0.72 },
+    { k: 'submeter', name: 'Proposed submeter', label: 'Submeter', w: 0.07, h: 0.07, d: 0.03, c: [160, 122, 26], a: 0.85 },
+    { k: 'odf', name: 'Proposed 12C ODF wall mounted', label: 'ODF', w: 0.08, h: 0.09, d: 0.04, c: [107, 63, 160], a: 0.85, text: 'ODF' },
+    { k: 'busbar', name: 'Proposed grounding busbar', label: 'Busbar', w: 0.12, h: 0.022, d: 0.015, c: [58, 165, 74], a: 0.9 },
+    { k: 'ladder', name: 'Proposed 200mm cable ladder', label: 'Cable ladder', w: 0.045, h: 0.45, d: 0.03, c: [70, 74, 82], a: 1, style: 'ladder' },
+    { k: 'tray', name: 'Proposed 200mm cable tray', label: 'Cable tray', w: 0.05, h: 0.45, d: 0.02, c: [122, 193, 67], a: 0.85 },
+    { k: 'trunking', name: 'Proposed 50x50mm trunking', label: 'Trunking', w: 0.022, h: 0.4, d: 0.018, c: [240, 122, 30], a: 0.9 },
+    { k: 'rhub', name: 'Proposed RHUB location', label: 'RHUB', w: 0.18, h: 0.1, d: 0.08, c: [47, 111, 209], a: 0.8 },
+    { k: 'rru', name: 'Proposed RRU location', label: 'RRU', w: 0.07, h: 0.16, d: 0.05, c: [47, 111, 209], a: 0.8 },
+    { k: 'subdb', name: 'Proposed AC SubDB', label: 'AC SubDB', w: 0.1, h: 0.06, d: 0.03, c: [210, 58, 42], a: 0.85 },
+    { k: 'sso', name: 'Proposed SSO-gang', label: 'SSO-gang', w: 0.05, h: 0.05, d: 0.02, c: [31, 163, 214], a: 0.9 },
+    { k: 'gps', name: 'Proposed GPS antenna', label: 'GPS antenna', w: 0.045, h: 0.075, d: 0.03, c: [225, 228, 233], a: 1, style: 'gps' }
+  ];
+  function equipDef(k) { for (var i = 0; i < EQUIP.length; i++) if (EQUIP[i].k === k) return EQUIP[i]; return null; }
+  function rgba(c, a, f) { f = f || 1; return 'rgba(' + Math.round(c[0] * f) + ',' + Math.round(c[1] * f) + ',' + Math.round(c[2] * f) + ',' + a + ')'; }
+  var imgCache = {};
+  function cachedImg(src, onload) {
+    var im = imgCache[src];
+    if (!im) { im = new Image(); im.onload = onload; im.src = src; imgCache[src] = im; }
+    return im.complete && im.naturalWidth ? im : null;
+  }
+  // Size of an item in canvas pixels (before rotation)
+  function equipSize(o, W) {
+    if (o.k === 'img') {
+      var im = cachedImg(o.src, function () { if (!annotOverlay.hidden) redrawAnnot(); });
+      var w = 0.16 * W * o.s, ratio = im ? im.naturalHeight / im.naturalWidth : 1;
+      return { w: w, h: w * ratio, d: 0 };
+    }
+    var def = equipDef(o.k);
+    return { w: def.w * W * o.s, h: def.h * W * o.s, d: def.d * W * o.s };
+  }
+  function drawEquip(ctx, o, W) {
+    var sz = equipSize(o, W), w = sz.w, h = sz.h;
+    ctx.save();
+    ctx.translate(o.x, o.y);
+    ctx.rotate((o.rot || 0) * Math.PI / 180);
+    if (o.flip) ctx.scale(-1, 1);
+    var lw = Math.max(1.5, W * 0.0025);
+    ctx.lineWidth = lw; ctx.lineJoin = 'round';
+    if (o.k === 'img') {
+      var im = cachedImg(o.src, function () { if (!annotOverlay.hidden) redrawAnnot(); });
+      if (im) {
+        if (o.d3) { ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = w * 0.08; ctx.shadowOffsetX = w * 0.06; ctx.shadowOffsetY = w * 0.06; }
+        ctx.drawImage(im, -w / 2, -h / 2, w, h);
+      }
+      ctx.restore();
+      return;
+    }
+    var def = equipDef(o.k), c = def.c, a = def.a;
+    var d = o.d3 ? sz.d : 0, ox = d * 0.75, oy = -d * 0.55;
+    ctx.translate(-ox / 2, -oy / 2);
+    var x0 = -w / 2, y0 = -h / 2, x1 = w / 2, y1 = h / 2;
+    var edge = rgba(c, 1, 0.45);
+    function poly(pts, fill) {
+      ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+      for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath(); if (fill) { ctx.fillStyle = fill; ctx.fill(); } ctx.strokeStyle = edge; ctx.stroke();
+    }
+    if (def.style === 'ladder') {
+      var rail = Math.max(lw * 1.6, w * 0.14);
+      var drawLadder = function (dx, dy, f) {
+        ctx.fillStyle = rgba(c, 1, f); ctx.strokeStyle = rgba(c, 1, f * 0.6);
+        ctx.fillRect(x0 + dx, y0 + dy, rail, h); ctx.fillRect(x1 - rail + dx, y0 + dy, rail, h);
+        for (var r = 1; r < 10; r++) { var yy = y0 + dy + h * r / 10; ctx.fillRect(x0 + dx, yy - rail * 0.35, w, rail * 0.7); }
+      };
+      if (d) drawLadder(ox, oy, 1.7);
+      drawLadder(0, 0, 1);
+      ctx.restore();
+      return;
+    }
+    if (d) {
+      poly([[x1, y0], [x1 + ox, y0 + oy], [x1 + ox, y1 + oy], [x1, y1]], rgba(c, Math.min(1, a + 0.1), 0.7));
+      poly([[x0, y0], [x1, y0], [x1 + ox, y0 + oy], [x0 + ox, y0 + oy]], rgba(c, Math.min(1, a + 0.1), 1.15));
+    }
+    if (def.style === 'gps') {
+      poly([[x0, y0 + h * 0.45], [x1, y0 + h * 0.45], [x1, y1], [x0, y1]], rgba(c, a, 0.92));
+      ctx.beginPath(); ctx.ellipse(0, y0 + h * 0.45, w / 2, h * 0.45, 0, Math.PI, 0); ctx.closePath();
+      ctx.fillStyle = rgba(c, a, 1); ctx.fill(); ctx.strokeStyle = 'rgba(80,84,92,1)'; ctx.stroke();
+    } else {
+      poly([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], rgba(c, a, 1));
+      if (o.k === 'tray') {
+        ctx.strokeStyle = rgba(c, 0.9, 0.6); ctx.lineWidth = lw * 0.6;
+        for (var m = 1; m < 12; m++) { var my = y0 + h * m / 12; ctx.beginPath(); ctx.moveTo(x0, my); ctx.lineTo(x1, my); ctx.stroke(); }
+      }
+      if (def.text) {
+        ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.font = 'bold ' + Math.max(9, Math.round(h * 0.28)) + 'px Arial, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(def.text, 0, 0);
+      }
+    }
+    ctx.restore();
+  }
+  // Where an item's number box sits: just past its top-right corner
+  function equipTagPos(o, W) {
+    var sz = equipSize(o, W), s = Math.max(28, W * 0.045);
+    return { x: o.x + sz.w / 2 + s * 0.65, y: o.y - sz.h / 2 + s * 0.5 };
+  }
+  // Tap test in the item's own (rotated) frame: its box plus a small finger margin
+  function equipHit(o, pt, W) {
+    var sz = equipSize(o, W), m = Math.max(12, W * 0.015), a = -(o.rot || 0) * Math.PI / 180;
+    var dx = pt.x - o.x, dy = pt.y - o.y;
+    var lx = dx * Math.cos(a) - dy * Math.sin(a), ly = dx * Math.sin(a) + dy * Math.cos(a);
+    return Math.abs(lx) <= sz.w / 2 + sz.d * 0.4 + m && Math.abs(ly) <= sz.h / 2 + sz.d * 0.3 + m;
+  }
+  function drawEquipSel(o, W) {
+    var sz = equipSize(o, W), pad = Math.max(8, W * 0.012);
+    actx.save(); actx.translate(o.x, o.y); actx.rotate((o.rot || 0) * Math.PI / 180);
+    actx.setLineDash([8, 6]); actx.lineWidth = Math.max(2, W * 0.003); actx.strokeStyle = '#F5A623';
+    actx.strokeRect(-sz.w / 2 - pad - sz.d * 0.4, -sz.h / 2 - pad - sz.d * 0.5, sz.w + pad * 2 + sz.d * 0.8, sz.h + pad * 2 + sz.d * 0.6);
+    actx.restore();
+  }
+  function numberedItems() { return A.items.filter(function (it) { return it.t === 'tag' || it.t === 'obj'; }); }
+  function renumberMarks() { numberedItems().forEach(function (it, i) { it.n = i + 1; }); }
+  function operatorName() {
+    var el = document.querySelector('[data-field="operator"] input');
+    return (el && el.value.trim()) || '';
+  }
+  function equipName(def) { return def.name.replace('{op} ', operatorName() ? operatorName() + ' ' : ''); }
+  function placeEquip(def, custom) {
+    var W = annotCanvas.width;
+    var o = { t: 'obj', k: custom ? 'img' : def.k, x: W / 2, y: annotCanvas.height / 2, s: 1, rot: 0, flip: false, d3: true, fresh: true };
+    if (custom) { o.src = custom.src; o.label = custom.name; } else o.label = equipName(def);
+    A.items.push(o);
+    renumberMarks();
+    A.sel = o;
+    redrawAnnot(); updateItemBar();
+    toast(o.n + '  ' + o.label + ' — drag it into place', 'ok', 2500);
+  }
+  var itemBar = $('itemBar');
+  function updateItemBar() {
+    itemBar.hidden = A.tool !== 'items';
+    var on = !!A.sel;
+    Array.prototype.forEach.call(itemBar.querySelectorAll('[data-act]:not([data-act="add"])'), function (b) { b.disabled = !on; });
+    var t = itemBar.querySelector('[data-act="d3"]');
+    t.textContent = A.sel && !A.sel.d3 ? '2D' : '3D';
+    $('itemSelName').textContent = A.sel ? A.sel.n + '  ' + A.sel.label : 'Tap an item to select it';
+  }
+  itemBar.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-act]'); if (!b) return;
+    var act = b.dataset.act, o = A.sel;
+    if (act === 'add') { openPalette(); return; }
+    if (!o) return;
+    if (act === 'bigger') o.s = Math.min(6, o.s * 1.15);
+    else if (act === 'smaller') o.s = Math.max(0.2, o.s / 1.15);
+    else if (act === 'rotl') o.rot = ((o.rot || 0) - 15) % 360;
+    else if (act === 'rotr') o.rot = ((o.rot || 0) + 15) % 360;
+    else if (act === 'flip') o.flip = !o.flip;
+    else if (act === 'd3') o.d3 = !o.d3;
+    else if (act === 'del') { A.items.splice(A.items.indexOf(o), 1); A.sel = null; renumberMarks(); }
+    redrawAnnot(); updateItemBar();
+  });
+
+  // Picker: built-in drawings + the user's own item pictures (kept on this device)
+  var paletteEl = $('itemPalette'), itemLib = null;
+  function loadItemLib() {
+    if (itemLib) return Promise.resolve(itemLib);
+    return kvGet('itemLib').then(function (v) { itemLib = Array.isArray(v) ? v : []; return itemLib; });
+  }
+  function thumb(def, custom) {
+    var c = document.createElement('canvas'); c.width = 96; c.height = 96;
+    var g = c.getContext('2d');
+    if (custom) {
+      var im = new Image(); im.onload = function () { var r = Math.min(80 / im.naturalWidth, 80 / im.naturalHeight); g.drawImage(im, 48 - im.naturalWidth * r / 2, 48 - im.naturalHeight * r / 2, im.naturalWidth * r, im.naturalHeight * r); }; im.src = custom.src;
+      return c;
+    }
+    var big = Math.max(def.w, def.h) + def.d * 0.8, W = 72 / big;
+    drawEquip(g, { k: def.k, x: 48, y: 48, s: 1, rot: 0, d3: true }, W);
+    return c;
+  }
+  function renderPalette() {
+    var grid = paletteEl.querySelector('.pal-grid');
+    grid.innerHTML = '';
+    EQUIP.forEach(function (def) {
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'pal-item'; b.dataset.k = def.k;
+      b.appendChild(thumb(def)); var sp = document.createElement('span'); sp.textContent = def.label; b.appendChild(sp);
+      grid.appendChild(b);
+    });
+    (itemLib || []).forEach(function (ci, i) {
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'pal-item own'; b.dataset.own = String(i);
+      b.appendChild(thumb(null, ci)); var sp = document.createElement('span'); sp.textContent = ci.name; b.appendChild(sp);
+      var x = document.createElement('span'); x.className = 'pal-del'; x.dataset.del = String(i); x.title = 'Remove from library'; x.textContent = '×'; b.appendChild(x);
+      grid.appendChild(b);
+    });
+    var add = document.createElement('label'); add.className = 'pal-item pal-add';
+    add.innerHTML = '<span class="pal-plus">+</span><span>Your own picture</span><input type="file" accept="image/*" class="tile-input" aria-label="Add your own item picture">';
+    grid.appendChild(add);
+  }
+  function openPalette() { loadItemLib().then(function () { renderPalette(); paletteEl.hidden = false; }); }
+  function closePalette() { paletteEl.hidden = true; }
+  $('palClose').addEventListener('click', closePalette);
+  paletteEl.addEventListener('click', function (e) {
+    if (e.target === paletteEl) { closePalette(); return; }
+    var del = e.target.closest('[data-del]');
+    if (del) {
+      e.preventDefault(); e.stopPropagation();
+      var i = Number(del.dataset.del), nm = itemLib[i] && itemLib[i].name;
+      askConfirm('Remove "' + nm + '" from your item pictures?', 'Remove', true).then(function (ok) {
+        if (!ok) return; itemLib.splice(i, 1); kvSet('itemLib', itemLib).catch(function () {}); renderPalette();
+      });
+      return;
+    }
+    var b = e.target.closest('.pal-item');
+    if (!b || b.classList.contains('pal-add')) return;
+    closePalette();
+    if (b.dataset.own != null) placeEquip(null, itemLib[Number(b.dataset.own)]);
+    else placeEquip(equipDef(b.dataset.k));
+  });
+  paletteEl.addEventListener('change', function (e) {
+    var inp = e.target; if (!inp.classList || !inp.classList.contains('tile-input')) return;
+    var file = inp.files && inp.files[0]; inp.value = '';
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var im = new Image();
+      im.onload = function () {
+        var r = Math.min(1, 360 / Math.max(im.width, im.height)), c = document.createElement('canvas');
+        c.width = Math.round(im.width * r); c.height = Math.round(im.height * r);
+        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+        var src = c.toDataURL('image/png');
+        ask('Name for this item (used in the numbered list):', [{ label: 'Cancel', value: null }, { label: 'Add to library', value: true, kind: 'primary' }], { placeholder: 'e.g. Proposed AC SubDB' })
+          .then(function (name) {
+            if (!name || !name.trim()) return;
+            itemLib.push({ name: name.trim(), src: src });
+            kvSet('itemLib', itemLib).catch(function () { toast('Could not save the picture on this device.', 'err'); });
+            renderPalette();
+          });
+      };
+      im.src = reader.result;
+    };
+    reader.readAsDataURL(file);
   });
 
   // "Measure" buttons beside length fields: open the floor plan photo of the same card / section in measure mode
@@ -2504,7 +2806,7 @@
   function hasPh(v) { return !!(v && v.photos && v.photos.length); }
   function tagCount(v) {
     var p = v && v.photos && v.photos[0];
-    return p && p.strokes ? p.strokes.filter(function (it) { return it.t === 'tag'; }).length : 0;
+    return p && p.strokes ? p.strokes.filter(function (it) { return it.t === 'tag' || it.t === 'obj'; }).length : 0;
   }
   function lineCount(t) { return String(t || '').split('\n').filter(function (x) { return x.trim(); }).length; }
   function amps(t) { var m = /(\d+(?:\.\d+)?)\s*a\b/i.exec(String(t || '')); return m ? Number(m[1]) : null; }
