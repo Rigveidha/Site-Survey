@@ -206,6 +206,8 @@
   .gps-btn svg { flex-shrink: 0; }
   .gps-value { font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem; color: var(--ink-faint); }
   .gps-value.set { color: var(--good); }
+  .automap-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .automap-row .seg { flex: 0 0 auto; }
   .gps-field .photo-grid { margin-top: 10px; }
 
   /* Repeatable blocks */
@@ -604,7 +606,7 @@
     { key: 'bmContactPerson', label: 'Building Management — contact person', type: 'text' },
     { key: 'buildingMgmtPhone', label: 'Building Management — contact phone', type: 'text' },
     { key: 'buildingPhoto', label: 'Building photo (report cover)', type: 'photo' },
-    { key: 'locationMap', label: 'Location map (screenshot)', type: 'photo' }
+    { key: 'locationMap', label: 'Location map', type: 'photo', automap: 1 }
   ];
   var buildingSchema = [
     { key: 'siteType', label: 'Type of site', type: 'text', list: ['Mall', 'Hospital', 'Office', 'Hotel', 'Residential', 'Campus', 'Transport hub', 'Factory'] },
@@ -837,7 +839,10 @@
       inner = '<div class="seg">' + f.options.map(function (o) {
         return '<button type="button" data-val="' + esc(o) + '" aria-pressed="false">' + esc(o) + '</button>';
       }).join('') + '</div>';
-    } else if (f.type === 'photo') inner = '<div class="photo-grid"' + (f.tags ? ' data-tags="1"' : '') + '></div>' +
+    } else if (f.type === 'photo') inner = (f.automap ? '<div class="automap-row"><button type="button" class="gps-btn automap-go">' + PIN_SVG + ' Make map from Lat / Long</button>' +
+        '<div class="seg automap-kind"><button type="button" data-kind="sat" aria-pressed="true">Satellite</button><button type="button" data-kind="map" aria-pressed="false">Street map</button></div></div>' +
+        '<p class="field-hint automap-status">The map is made for you from the Lat / Long above, with the site pinned. Tap ✎ Draw on it to outline the building in red. You can still add your own picture.</p>' : '') +
+      '<div class="photo-grid"' + (f.tags ? ' data-tags="1"' : '') + '></div>' +
       (f.draw ? '<p class="field-hint">Tap <b>✎ Draw</b> on the plan to mark the room, riser or cable route. Lines you draw straighten by themselves, rough boxes and circles turn neat, and <b>Shapes</b> adds lines, arrows, boxes and circles.</p>' : '') +
       (f.tags ? '<p class="field-hint">Tap <b>1 2 3</b> on a photo, then use <b>Equipment</b> to place cabinets, PDU, ODF and more (numbered and named for you), or <b>Number tag</b> to tag items yourself.</p>' : '');
     else if (f.type === 'gps' || f.type === 'gpsphoto') {
@@ -871,6 +876,7 @@
       wireItems(fieldEl);
     } else if (kind === 'photo') {
       initPhotoGrid(fieldEl.querySelector('.photo-grid'));
+      if (fieldEl.querySelector('.automap-go')) wireAutoMap(fieldEl);
     } else if (kind === 'gps') {
       wireGpsRow(fieldEl);
     } else if (kind === 'gpsphoto') {
@@ -989,7 +995,10 @@
       var g = parseLatLng(inp.value);
       fieldEl._gps = g;
       val.textContent = inp.value.trim() && !g ? 'Type it as latitude, longitude — e.g. 3.2437505, 101.4737994' : '';
+      clearTimeout(fieldEl._mapT);
+      if (g) fieldEl._mapT = setTimeout(gpsChanged, 1500);
     });
+    function gpsChanged() { if (fieldEl.dataset.field === 'latLong') document.dispatchEvent(new Event('site-gps')); }
     btn.addEventListener('click', function () {
       if (!navigator.geolocation) { val.textContent = 'Location is not available here — type it instead.'; return; }
       // Watch the GPS for up to 20 s and keep the most accurate fix; stop early once it is within 10 m
@@ -1005,6 +1014,7 @@
         setGpsDisplay(fieldEl, { lat: best.latitude.toFixed(7), lng: best.longitude.toFixed(7), acc: Math.round(best.accuracy) });
         val.textContent = 'Accurate to ±' + Math.round(best.accuracy) + ' m' + (best.accuracy > 30 ? ' — tap again outdoors for a closer fix' : '');
         scheduleDraft();
+        gpsChanged();
       }
       watchId = navigator.geolocation.watchPosition(function (pos) {
         if (!best || pos.coords.accuracy < best.accuracy) best = pos.coords;
@@ -1020,6 +1030,118 @@
         else val.textContent = 'Could not get a GPS fix — move closer to a window or outside and tap again.';
       }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
       timer = setTimeout(finish, 20000);
+    });
+  }
+
+  // ---------------- Location map made from the Lat / Long (street map or satellite) ----------------
+  // Satellite with roads & place names (like Google's satellite view), or a plain street map
+  var ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+  function esri(layer) { return function (z, x, y) { return ESRI + layer + '/MapServer/tile/' + z + '/' + y + '/' + x; }; }
+  var MAP_SRC = {
+    sat: { layers: [esri('World_Imagery'), esri('Reference/World_Transportation'), esri('Reference/World_Boundaries_and_Places')], z: 16, credit: 'Imagery © Esri, Maxar, Earthstar Geographics' },
+    map: { layers: [function (z, x, y) { return 'https://tile.openstreetmap.org/' + z + '/' + x + '/' + y + '.png'; }], z: 16, credit: '© OpenStreetMap contributors' }
+  };
+  function tileImg(src) {
+    return new Promise(function (res) {
+      var im = new Image(); im.crossOrigin = 'anonymous';
+      var done = false, t = setTimeout(function () { if (!done) { done = true; res(null); } }, 12000);
+      im.onload = function () { if (!done) { done = true; clearTimeout(t); res(im); } };
+      im.onerror = function () { if (!done) { done = true; clearTimeout(t); res(null); } };
+      im.src = src;
+    });
+  }
+  function worldPx(lat, lng, z) {
+    var n = 256 * Math.pow(2, z), s = Math.sin(lat * Math.PI / 180);
+    return { x: (lng + 180) / 360 * n, y: (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n };
+  }
+  function paintLayer(ctx, url, lat, lng, z, W, H) {
+    var c = worldPx(lat, lng, z), left = c.x - W / 2, top = c.y - H / 2, n = Math.pow(2, z), jobs = [];
+    for (var tx = Math.floor(left / 256); tx <= Math.floor((left + W) / 256); tx++)
+      for (var ty = Math.floor(top / 256); ty <= Math.floor((top + H) / 256); ty++) {
+        if (ty < 0 || ty >= n) continue;
+        (function (tx, ty) {
+          jobs.push(tileImg(url(z, ((tx % n) + n) % n, ty)).then(function (im) { return im ? { im: im, x: Math.round(tx * 256 - left), y: Math.round(ty * 256 - top) } : null; }));
+        })(tx, ty);
+      }
+    return Promise.all(jobs).then(function (r) {
+      var got = 0;
+      r.forEach(function (t) { if (t) { ctx.drawImage(t.im, t.x, t.y, 256, 256); got++; } });
+      return got;
+    });
+  }
+  function drawPin(ctx, x, y, r) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = r * 0.6; ctx.shadowOffsetY = r * 0.2;
+    ctx.fillStyle = '#EA4335';
+    ctx.beginPath(); ctx.moveTo(x, y);
+    ctx.bezierCurveTo(x - r * 0.35, y - r * 1.1, x - r, y - r * 1.5, x - r, y - r * 2.1);
+    ctx.arc(x, y - r * 2.1, r, Math.PI, 0);
+    ctx.bezierCurveTo(x + r, y - r * 1.5, x + r * 0.35, y - r * 1.1, x, y);
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.fillStyle = '#A50E0E'; ctx.beginPath(); ctx.arc(x, y - r * 2.1, r * 0.38, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  function makeLocationMap(lat, lng, kind, siteName) {
+    var W = 1600, H = 930, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var ctx = cv.getContext('2d'), src = MAP_SRC[kind] || MAP_SRC.sat;
+    ctx.fillStyle = '#d9d6cf'; ctx.fillRect(0, 0, W, H);
+    var base = 0;
+    return src.layers.reduce(function (pr, url, i) {
+      return pr.then(function () { return paintLayer(ctx, url, lat, lng, src.z, W, H).then(function (n) { if (i === 0) base = n; }); });
+    }, Promise.resolve()).then(function () {
+      if (!base) throw new Error('no tiles');
+      drawPin(ctx, W / 2, H / 2, 17);
+      if (siteName) { // site name beside the pin, white text with dark halo like map labels
+        ctx.font = 'bold 26px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.lineWidth = 5; ctx.strokeStyle = kind === 'map' ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.75)'; ctx.lineJoin = 'round';
+        ctx.strokeText(siteName, W / 2 + 24, H / 2 - 36);
+        ctx.fillStyle = kind === 'map' ? '#A50E0E' : '#fff'; ctx.fillText(siteName, W / 2 + 24, H / 2 - 36);
+      }
+      ctx.font = '14px Arial, sans-serif'; var cw = ctx.measureText(src.credit).width;
+      ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(W - cw - 14, H - 20, cw + 14, 20);
+      ctx.fillStyle = '#333'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(src.credit, W - 7, H - 10);
+      return cv.toDataURL('image/jpeg', 0.88);
+    });
+  }
+  function siteGps() {
+    var f = document.querySelector('[data-field="latLong"]');
+    return f && f._gps ? { lat: Number(f._gps.lat), lng: Number(f._gps.lng) } : null;
+  }
+  function runAutoMap(fieldEl, opts) {
+    opts = opts || {};
+    var grid = fieldEl.querySelector('.photo-grid'), status = fieldEl.querySelector('.automap-status');
+    var g = siteGps();
+    if (!g) { if (!opts.quiet) status.textContent = 'Set the Lat / Long first (tap "Use my location" or type it).'; return; }
+    if (opts.quiet && grid._photos.some(function (p) { return !p.auto; })) return; // never replace a map you added yourself
+    var kind = fieldEl.dataset.mapKind || 'sat';
+    var nameEl = document.querySelector('[data-field="siteName"] input');
+    status.textContent = 'Making the map…';
+    fieldEl._mapJob = (fieldEl._mapJob || 0) + 1; var job = fieldEl._mapJob;
+    makeLocationMap(g.lat, g.lng, kind, nameEl && nameEl.value).then(function (d) {
+      if (job !== fieldEl._mapJob) return;
+      var keep = grid._photos.filter(function (p) { return !p.auto; });
+      grid._photos = [{ original: d, annotated: d, auto: kind, at: g.lat + ',' + g.lng }].concat(keep);
+      renderPhotoGrid(grid); scheduleDraft();
+      status.textContent = 'Map made from ' + g.lat.toFixed(6) + ', ' + g.lng.toFixed(6) + '. It updates when the location changes.';
+    }).catch(function () {
+      if (job !== fieldEl._mapJob) return;
+      status.textContent = 'Could not load the map — it needs internet. Tap "Make map" again when you have signal.';
+    });
+  }
+  function wireAutoMap(fieldEl) {
+    fieldEl.dataset.mapKind = 'sat';
+    fieldEl.querySelector('.automap-go').addEventListener('click', function () { runAutoMap(fieldEl); });
+    fieldEl.querySelector('.automap-kind').addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      fieldEl.dataset.mapKind = b.dataset.kind;
+      Array.prototype.forEach.call(this.querySelectorAll('button'), function (x) { x.setAttribute('aria-pressed', x === b); });
+      if (siteGps()) runAutoMap(fieldEl);
+    });
+    document.addEventListener('site-gps', function () {
+      var grid = fieldEl.querySelector('.photo-grid'), g = siteGps(), cur = grid._photos[0];
+      if (!g || (cur && cur.auto && cur.at === g.lat + ',' + g.lng)) return;
+      runAutoMap(fieldEl, { quiet: true });
     });
   }
 
@@ -2645,19 +2767,21 @@
       labelW = labelW || 62;
       X.table({ body: rows, widths: [labelW, CW - labelW], colStyles: { 0: { fill: X.LABEL_FILL } } });
     };
-    X.photos = function (items) {
+    X.photos = function (items, opts) {
       items = items.filter(function (it) { return pdf.imgInfo(it.src); });
       if (!items.length) return;
       var single = items.length === 1, gap = 6;
-      var colW = single ? CW * 0.8 : (CW - gap) / 2, maxH = single ? 125 : 88;
+      var wide = opts && opts.wide;
+      var colW = single ? CW * (wide ? 0.92 : 0.8) : (CW - gap) / 2, maxH = single ? (wide ? 150 : 125) : 88;
       for (var i = 0; i < items.length; i += single ? 1 : 2) {
         var row = items.slice(i, i + (single ? 1 : 2));
         var fits = row.map(function (it) {
           var im = pdf.imgInfo(it.src), s = Math.min(colW / im.w, maxH / im.h);
           return { w: im.w * s, h: im.h * s };
         });
-        var caps = row.map(function (it) { return splitText(it.caption || '', colW, 8.5, false); });
-        var rowH = Math.max.apply(null, fits.map(function (f) { return f.h; })) + Math.max.apply(null, caps.map(function (c) { return c.length; })) * 3.9 + 7;
+        var caps = row.map(function (it) { return it.caption ? splitText(it.caption, colW, 8.5, false) : []; });
+        var capN = Math.max.apply(null, caps.map(function (c) { return c.length; }));
+        var rowH = Math.max.apply(null, fits.map(function (f) { return f.h; })) + capN * 3.9 + (capN ? 7 : 5);
         X.need(rowH);
         row.forEach(function (it, k) {
           var f = fits[k];
@@ -2905,8 +3029,8 @@
       (solution ? solution + ' ' : '') + 'solution' + (si.operator ? ' for ' + si.operator : '') +
       ' to provide in-building coverage and serve the hotspot areas of the building.');
     X.H2(sec + '.2   SITE ADDRESS & LOCATION MAP');
-    X.kv(keep([['Building address', si.address], ['Lat / Long', F.latLong]]), 45);
-    X.photos(X.photoItems(siteSchema, si, ['locationMap']));
+    if (si.address) X.para(si.address);
+    X.photos(X.photoItems(siteSchema, si, ['locationMap']).map(function (it) { return { src: it.src, caption: '' }; }), { wide: true });
 
     // ---------- Design criteria (only if written in the survey) ----------
     if (sm.designCriteria) {
@@ -3074,7 +3198,7 @@
       .forEach(function (f) { M(blank(si[f[0]]), f[1], TAB.site); });
     M(!si.latLong, 'Lat / Long — tap "Use my location"', TAB.site);
     M(!hasPh(si.buildingPhoto), 'Building photo for the report cover', TAB.site);
-    M(!hasPh(si.locationMap), 'Location map screenshot', TAB.site);
+    M(!hasPh(si.locationMap), 'Location map — tap "Make map from Lat / Long"', TAB.site);
 
     var rooms = filledOf(d.proposed, proposedSchema), risers = filledOf(d.rru, rruSchema);
     M(!rooms.length, 'Equipment room', TAB.equip);
