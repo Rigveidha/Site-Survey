@@ -162,6 +162,13 @@
   .item-no { flex: 0 0 auto; width: 26px; height: 26px; border: 1.5px solid var(--ink); border-radius: 4px; display: flex; align-items: center; justify-content: center;
     font-size: 0.78rem; font-weight: 700; background: var(--surface); }
   .item-row input { flex: 1; min-width: 0; }
+  .item-row { flex-wrap: wrap; }
+  .odf-opts { flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 6px; padding-left: 34px; }
+  .odf-opts:empty { display: none; }
+  .odf-opts .odf-lab { font-size: 0.74rem; color: var(--muted, #8a93a3); align-self: center; margin-right: 2px; }
+  .odf-opts button { padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+  .odf-opts button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .odf-opts .odf-gap { width: 10px; }
   .item-del { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--bad); display: flex; align-items: center; justify-content: center; cursor: pointer; }
   .items-add { align-self: flex-start; margin-top: 2px; background: none; border: none; color: var(--accent-ink); font-weight: 700; font-size: 0.82rem; cursor: pointer; padding: 4px 0; }
   .ask-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(15,18,24,0.55); display: flex; align-items: center; justify-content: center;
@@ -889,8 +896,29 @@
     list.innerHTML = vals.map(function (v, i) {
       return '<div class="item-row"><span class="item-no">' + (i + 1) + '</span>' +
         '<input type="text" list="dl-items" autocomplete="off" value="' + esc(v) + '" placeholder="' + esc(ex[i] ? 'e.g. ' + ex[i] : 'Item ' + (i + 1)) + '">' +
-        '<button type="button" class="item-del" aria-label="Remove item ' + (i + 1) + '">' + X_SVG + '</button></div>';
+        '<button type="button" class="item-del" aria-label="Remove item ' + (i + 1) + '">' + X_SVG + '</button>' +
+        '<div class="odf-opts">' + odfOpts(v) + '</div></div>';
     }).join('');
+  }
+  // ODF rows get quick choices: core count and mounting
+  var ODF_CORES = ['12C', '24C', '48C'], ODF_MOUNT = ['Wall mounted', 'Rack mounted'];
+  function isOdf(v) { return /\bODF\b/i.test(v || ''); }
+  function odfParts(v) {
+    var c = /\b(\d+)\s*C\b/i.exec(v), m = /\b(wall|rack)[\s-]*mount(ed)?\b/i.exec(v);
+    return { cores: c ? c[1] + 'C' : '', mount: m ? (m[1].toLowerCase() === 'wall' ? 'Wall mounted' : 'Rack mounted') : '' };
+  }
+  function odfOpts(v) {
+    if (!isOdf(v)) return '';
+    var p = odfParts(v);
+    return '<span class="odf-lab">Cores</span>' + ODF_CORES.map(function (c) { return '<button type="button" data-odf-cores="' + c + '" aria-pressed="' + (p.cores === c) + '">' + c + '</button>'; }).join('') +
+      '<span class="odf-gap"></span><span class="odf-lab">Mount</span>' + ODF_MOUNT.map(function (m) { return '<button type="button" data-odf-mount="' + m + '" aria-pressed="' + (p.mount === m) + '">' + m + '</button>'; }).join('');
+  }
+  function odfSet(v, cores, mount) {
+    var p = odfParts(v);
+    cores = cores || p.cores; mount = mount || p.mount;
+    var t = String(v).replace(/\b\d+\s*C\b/ig, '').replace(/\b(wall|rack)[\s-]*mount(ed)?\b/ig, '');
+    var at = t.search(/\bODF\b/i), pre = t.slice(0, at).replace(/\s+/g, ' ').trim(), post = t.slice(at + 3).replace(/\s+/g, ' ').trim();
+    return [pre, cores, 'ODF', mount ? mount.toLowerCase() : '', post].filter(Boolean).join(' ');
   }
   function wireItems(fieldEl) {
     renderItems(fieldEl, []);
@@ -900,7 +928,22 @@
       var ins = fieldEl.querySelectorAll('.item-row input'); ins[ins.length - 1].focus();
       scheduleDraft();
     });
+    fieldEl.querySelector('.items-list').addEventListener('input', function (e) {
+      if (!e.target.matches('.item-row input')) return;
+      var box = e.target.closest('.item-row').querySelector('.odf-opts');
+      var html = odfOpts(e.target.value);
+      if (box.innerHTML !== html) box.innerHTML = html;
+    });
     fieldEl.querySelector('.items-list').addEventListener('click', function (e) {
+      var ob = e.target.closest('[data-odf-cores],[data-odf-mount]');
+      if (ob) {
+        var row = ob.closest('.item-row'), inp = row.querySelector('input');
+        inp.value = odfSet(inp.value, ob.dataset.odfCores, ob.dataset.odfMount);
+        row.querySelector('.odf-opts').innerHTML = odfOpts(inp.value);
+        fieldEl.dispatchEvent(new Event('input', { bubbles: true }));
+        scheduleDraft();
+        return;
+      }
       var del = e.target.closest('.item-del');
       if (!del) return;
       var rows = Array.prototype.slice.call(fieldEl.querySelectorAll('.item-row'));
@@ -1079,7 +1122,7 @@
       else t = 'Step 2 of 2 — tap along the cable route. ' + (A.route.length > 1 ? 'Route: ' + fmtM(routeM()) + '. ' : '') +
                'Undo removes the last point.' + (A.target ? ' Save puts the length in the form.' : '');
     } else if (A.tool === 'tag') t = A.itemsField ? 'Tap each item to drop 1, 2, 3… and type its name; it goes into the numbered list under the photo.' : 'Tap to drop numbered tags 1, 2, 3… The original photo is always kept.';
-    else if (A.tool === 'items') t = 'Tap + Add equipment to place an item; it is numbered and named for you. Drag to move; pinch with two fingers to resize and twist to rotate; the buttons flip or switch 2D / 3D.';
+    else if (A.tool === 'items') t = 'Tap + Add equipment to place an item; it is numbered and named for you. Drag to move; pinch with two fingers to resize — items stay upright. Use ⟲ ⟳ to rotate, ⇋ to flip, 3D to switch 2D / 3D.';
     else if (A.tool === 'shape') t = 'Pick a shape, then drag on the photo to draw it. Hold the line steady — it comes out clean and straight.';
     else t = 'Draw with your finger — lines straighten by themselves, and a rough box, circle or triangle turns into a neat shape. The original photo is always kept.';
     annotHint.textContent = t;
@@ -1171,7 +1214,7 @@
     return { x: Math.round((e.clientX - rect.left) * (annotCanvas.width / rect.width)), y: Math.round((e.clientY - rect.top) * (annotCanvas.height / rect.height)) };
   }
   annotCanvas.style.touchAction = 'none';
-  // Two-finger pinch on a selected equipment item: spread / squeeze to resize, twist to rotate
+  // Two-finger pinch on a selected equipment item: spread / squeeze to resize (no twist — items stay straight)
   var touchPts = {};
   function pinchGeom() {
     var ids = Object.keys(touchPts); if (ids.length < 2) return null;
@@ -1244,7 +1287,6 @@
       e.preventDefault();
       var g1 = pinchGeom(); if (!g1) return;
       A.sel.s = Math.max(0.2, Math.min(6, A.pinch.s0 * g1.d / A.pinch.d0));
-      A.sel.rot = Math.round(A.pinch.r0 + (g1.a - A.pinch.a0));
       redrawAnnot();
       return;
     }
@@ -1446,7 +1488,7 @@
     { k: 'odf', name: 'Proposed ODF wall mounted', label: 'ODF', w: 0.08, h: 0.09, d: 0.04, c: [70, 74, 82], a: 0.85, text: 'ODF' },
     { k: 'busbar', name: 'Proposed grounding busbar', label: 'Busbar', w: 0.12, h: 0.022, d: 0.015, c: [184, 115, 51], a: 0.9 },
     { k: 'ladder', name: 'Proposed 200mm cable ladder', label: 'Cable ladder', w: 0.045, h: 0.45, d: 0.03, c: [180, 186, 194], a: 1, style: 'ladder' },
-    { k: 'tray', name: 'Proposed 200mm cable tray', label: 'Cable tray', w: 0.05, h: 0.45, d: 0.02, c: [190, 195, 200], a: 0.85 },
+    { k: 'tray', name: 'Proposed 200mm cable tray', label: 'Cable tray', w: 0.05, h: 0.45, d: 0.02, c: [46, 150, 70], a: 0.9 },
     { k: 'trunking', name: 'Proposed 50x50mm trunking', label: 'Trunking', w: 0.022, h: 0.4, d: 0.018, c: [240, 122, 30], a: 0.9 },
     { k: 'rhub', name: 'Proposed RHUB location', label: 'RHUB', w: 0.18, h: 0.1, d: 0.08, c: [70, 74, 82], a: 0.8 },
     { k: 'rru', name: 'Proposed RRU location', label: 'RRU', w: 0.07, h: 0.16, d: 0.05, c: [80, 84, 92], a: 0.8 },
@@ -1559,8 +1601,8 @@
       if (d) ladderAt(ox, oy, 0.8);
       ladderAt(0, 0, 1);
     } else if (k === 'tray') {
-      ctx.fillStyle = lin(x0, 0, x1, 0, [[0, '#dfe3e8'], [0.5, '#b9bfc7'], [1, '#9aa1aa']]); ctx.fillRect(x0, y0, w, h); ctx.strokeStyle = dark; ctx.lineWidth = lw * 0.7; ctx.strokeRect(x0, y0, w, h);
-      ctx.fillStyle = 'rgba(60,64,70,0.55)';
+      ctx.fillStyle = lin(x0, 0, x1, 0, [[0, '#6fd08a'], [0.5, '#2e9e4c'], [1, '#1f7a38']]); ctx.fillRect(x0, y0, w, h); ctx.strokeStyle = dark; ctx.lineWidth = lw * 0.7; ctx.strokeRect(x0, y0, w, h);
+      ctx.fillStyle = 'rgba(10,50,22,0.55)';
       for (var ty = 0; ty < 22; ty++) for (var tx = 0; tx < 2; tx++) { rr(x0 + w * (0.2 + tx * 0.36), y0 + h * (0.02 + ty * 0.044), w * 0.24, h * 0.022, 1.5); ctx.fill(); }
       ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(x0, y0, w * 0.08, h);
     } else if (k === 'trunking') {
