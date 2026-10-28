@@ -2731,7 +2731,6 @@
     X.H2(base + '.' + (++n) + '   PROPOSED EQUIPMENT LOCATION' + name);
     X.photos(X.photoItems(proposedSchema, e, ['overallView']));
     X.itemTable(e.itemList);
-    X.kv(X.infoRows(proposedSchema, e, ['roomName', 'block']));
     X.photos(X.photoItems(proposedSchema, e, null, ['overallView', 'floorPlan', 'doorPhoto']));
     var plan = X.photoItems(proposedSchema, e, ['floorPlan']).concat(X.photoItems(proposedSchema, e, ['doorPhoto']));
     if (plan.length) { X.newPage(); X.H2(base + '.' + (++n) + '   FLOOR PLAN' + name); X.photos(plan); }
@@ -2743,7 +2742,6 @@
     X.H2(base + '.' + (++n) + '   ' + what + (e.sector ? ' ' + e.sector.toUpperCase() : '') + ' LOCATION' + name);
     X.photos(X.photoItems(rruSchema, e, ['referencePhoto']));
     X.itemTable(e.itemList);
-    X.kv(X.infoRows(rruSchema, e, ['riserName', 'block']));
     X.photos(X.photoItems(rruSchema, e, null, ['referencePhoto', 'layoutPhoto', 'doorPhoto']));
     var plan = X.photoItems(rruSchema, e, ['layoutPhoto']).concat(X.photoItems(rruSchema, e, ['doorPhoto']));
     if (plan.length) { X.newPage(); X.H2(base + '.' + (++n) + '   FLOOR PLAN VIEW' + name); X.photos(plan); }
