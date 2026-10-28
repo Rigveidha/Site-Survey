@@ -123,7 +123,7 @@
     background: rgba(20,24,31,0.62); color: #fff; display: flex; align-items: center; justify-content: center;
   }
   .photo-actions button.danger { background: rgba(179,38,30,0.85); }
-  .photo-actions button.a-tags { width: auto; padding: 0 7px; border-radius: 999px; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em; background: rgba(20,24,31,0.72); }
+  .photo-actions button.a-tags { white-space: nowrap; width: auto; padding: 0 7px; border-radius: 999px; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em; background: rgba(20,24,31,0.72); }
   .photo-mark { position: absolute; bottom: 3px; left: 3px; font-size: 0.56rem; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; background: rgba(20,24,31,0.62); color: #fff; padding: 1px 6px; border-radius: 999px; }
   .photo-count-hint { font-size: 0.72rem; color: var(--ink-faint); margin-top: 6px; }
 
@@ -661,7 +661,7 @@
     { key: 'overallView', label: 'Overall view', type: 'photo', tags: 1 },
     { key: 'itemList', label: 'Numbered items — printed as a table under the photo', type: 'items', examples: ['Proposed U Mobile cabinet', 'Proposed 200mm cable ladder 3m', 'Proposed U Mobile PDU'] },
     { key: 'doorPhoto', label: 'Door photo', type: 'photo' },
-    { key: 'floorPlan', label: 'Floor plan with room marked', type: 'photo' },
+    { key: 'floorPlan', label: 'Floor plan with room marked', type: 'photo', draw: 1 },
     { measure: 1, key: 'measured', label: 'Measurement', type: 'text', placeholder: 'Type it, or tap Measure on the floor plan / photo' },
     { more: 1, key: 'dimensions', label: 'Room dimensions L × W × H (mm)', type: 'text', placeholder: 'or N/A' },
     { more: 1, key: 'plinthDim', label: 'Concrete plinth dimensions', type: 'text', placeholder: 'or N/A' },
@@ -689,7 +689,7 @@
     { key: 'referencePhoto', label: 'Riser photo', type: 'photo', tags: 1 },
     { key: 'itemList', label: 'Numbered items — printed as a table under the photo', type: 'items', examples: ['Proposed RHUB location', 'Proposed RRU location', 'Proposed 200mm cable tray'] },
     { key: 'doorPhoto', label: 'Door photo', type: 'photo' },
-    { key: 'layoutPhoto', label: 'Layout diagram (floor plan)', type: 'photo' },
+    { key: 'layoutPhoto', label: 'Layout diagram (floor plan)', type: 'photo', draw: 1 },
     { more: 1, key: 'rhubId', label: 'RHUB ID', type: 'text', placeholder: 'e.g. GF-RHUB001' },
     { more: 1, key: 'rhubPosition', label: 'RHUB position', type: 'text' },
     { more: 1, key: 'rruPosition', label: 'RRU position', type: 'text', placeholder: 'e.g. Proposed 700 RRU' },
@@ -709,7 +709,7 @@
     { key: 'breaker', label: 'Breaker rating', type: 'text', placeholder: 'e.g. 100A MCCB' },
     { measure: 1, key: 'cableLength', label: 'Power cable — est. length', type: 'text', placeholder: 'e.g. 150m' },
     { key: 'tappingPhoto', label: 'Tapping point photos (door, panel)', type: 'photo' },
-    { key: 'floorPlanDrawing', label: 'Floor plan with power route', type: 'photo' },
+    { key: 'floorPlanDrawing', label: 'Floor plan with power route', type: 'photo', draw: 1 },
     { more: 1, key: 'cableTrayPhoto', label: 'Cable tray', type: 'photo' },
     { more: 1, measure: 1, key: 'cableTrayLength', label: 'Cable tray — final estimated length', type: 'text' },
     { more: 1, key: 'trunkingPhoto', label: 'Trunking', type: 'photo' },
@@ -838,6 +838,7 @@
         return '<button type="button" data-val="' + esc(o) + '" aria-pressed="false">' + esc(o) + '</button>';
       }).join('') + '</div>';
     } else if (f.type === 'photo') inner = '<div class="photo-grid"' + (f.tags ? ' data-tags="1"' : '') + '></div>' +
+      (f.draw ? '<p class="field-hint">Tap <b>✎ Draw</b> on the plan to mark the room, riser or cable route. Lines you draw straighten by themselves, rough boxes and circles turn neat, and <b>Shapes</b> adds lines, arrows, boxes and circles.</p>' : '') +
       (f.tags ? '<p class="field-hint">Tap <b>1 2 3</b> on a photo, then use <b>Equipment</b> to place cabinets, PDU, ODF and more (numbered and named for you), or <b>Number tag</b> to tag items yourself.</p>' : '');
     else if (f.type === 'gps' || f.type === 'gpsphoto') {
       inner = '<div class="gps-row"><input type="text" class="gps-input" inputmode="decimal" autocomplete="off" placeholder="Lat, Long — e.g. 3.2437505, 101.4737994">' +
@@ -1061,7 +1062,7 @@
       '<img src="' + (p.annotated || p.original) + '" alt="">' +
       (p.annotated !== p.original ? '<span class="photo-mark">Marked</span>' : '') +
       (p.caption ? '<span class="photo-cap">Note</span>' : '') +
-      '<div class="photo-actions">' + (tags ? '<button type="button" class="a-tags" title="Number the items on this photo">1 2 3</button>' : '') +
+      '<div class="photo-actions">' + (!tags ? '<button type="button" class="a-tags a-draw" title="Draw on this photo">✎ Draw</button>' : '') + (tags ? '<button type="button" class="a-tags" title="Number the items on this photo">1 2 3</button>' : '') +
         '<button type="button" class="a-remove danger" title="Remove">' + X_SVG + '</button></div>' +
     '</div>';
   }
@@ -1087,7 +1088,7 @@
         });
         return;
       }
-      openAnnotator(grid, idx, e.target.closest('.a-tags') ? { tool: 'tag' } : null);
+      openAnnotator(grid, idx, e.target.closest('.a-draw') ? { tool: 'pen' } : e.target.closest('.a-tags') ? { tool: 'tag' } : null);
     });
   }
   function handleFilesChosen(input, grid) {
