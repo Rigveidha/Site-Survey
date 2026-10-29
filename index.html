@@ -181,6 +181,9 @@
   .bt-cap { font-size: 0.76rem; font-weight: 600; color: #5B6472; text-align: center; }
   .bt-del { position: absolute; top: 4px; right: 8px; font-size: 1.1rem; color: #B3261E; font-weight: 700; }
   .brand-add { border-style: dashed; background: transparent; }
+  .brand-skip { background: transparent; border-style: dashed; }
+  .bt-skip { font-size: 1.15rem; font-weight: 800; color: var(--ink-muted); height: 56px; display: flex; align-items: center; }
+  .brand-skip .bt-cap { color: var(--ink-muted); }
   .brand-add .bt-cap { color: var(--ink-muted); }
   .brand-add input { position: absolute; width: 1px; height: 1px; opacity: 0; }
   .bt-plus { font-size: 2rem; color: var(--accent); line-height: 1; height: 56px; display: flex; align-items: center; }
@@ -629,6 +632,7 @@
   var projectSchema = [
     { key: 'brandCompany', label: 'Report company', type: 'text', hide: 1 },
     { key: 'brandClient', label: 'Report client', type: 'text', hide: 1 },
+    { key: 'brandClientName', label: 'Report client name (no logo)', type: 'text', hide: 1 },
     { key: 'company', label: 'Surveying company', type: 'text', placeholder: 'e.g. Restu Jaya' },
     { key: 'projectType', label: 'Project type (report cover)', type: 'seg', options: ['New', 'Upgrade', 'Enhancement', 'Sharing'], only: 'edotco' },
     { key: 'solution', label: 'Solution (report title)', type: 'text', placeholder: '5G In-Building System', list: ['5G In-Building System', '5G IBS Active DIS', '5G IBS Active DIS & Passive DAS', '5G IBC'] },
@@ -3083,8 +3087,8 @@
       compLogo: X.firstPhoto(si.reportLogo) || (comp && comp.logo) || null,
       cliLogo: X.firstPhoto(si.clientLogo) || (cli && cli.logo) || null,
       compName: si.company || (comp && comp.name) || '',
-      cliName: (cli && cli.name) || '',
-      cliShort: (cli && (cli.short || cli.name)) || ''
+      cliName: (cli && cli.none ? si.brandClientName : cli && cli.name) || '',
+      cliShort: (cli && cli.none ? String(si.brandClientName || '').replace(/\s+(sdn\.?\s*bhd\.?|berhad|bhd\.?)$/i, '') : cli && (cli.short || cli.name)) || ''
     };
   }
   function solutionOf(si) { return String(si.solution || '5G In-Building System').toUpperCase(); }
@@ -3321,7 +3325,7 @@
     pdf.rect(8, 8, 194, 281, { stroke: [40, 40, 40], w: 0.35 });
     logoAt(pdf, B.cliLogo, 13, 11, 34, 11, 'left');
     logoAt(pdf, B.compLogo, 197, 11, 62, 11, 'right');
-    pdf.text('@copyright ' + (B.cliShort || '').toUpperCase(), 11, 286.5, { size: 6.5, color: [60, 60, 60] });
+    if (B.cliShort) pdf.text('@copyright ' + B.cliShort.toUpperCase(), 11, 286.5, { size: 6.5, color: [60, 60, 60] });
   }
 
   // ===== Kyocera format (e.g. Dewan Undangan Negeri Sarawak) =====
@@ -3392,7 +3396,7 @@
       ['', '     -   Passive Antenna Panel (DAS MIMO)', ''], ['2.', 'Equipment Location', roomNames(F).toUpperCase()], ['3.', 'Total Hybrid Cable', ''], ['4', 'Total Feeder Cable 7/8"', ''],
       ['5', 'Plan Sectorization', ''], ['', '     -   Active Sector (DIS)', ''], ['', '     -   Passive Sector (DAS MIMO)', ''], ['6', 'Total Pbridge', '']] });
     X.newPage();
-    sect('SITE ATTENDANCE', [['Contractor/Vendor', B.compName], ['Surveyor Name', si.preparedBy], ['Contact Number', si.contactNumber], ['Pic ' + (B.comp ? (B.comp.short || B.comp.name).toLowerCase() : 'company'), si.preparedBy]]);
+    sect('SITE ATTENDANCE', [['Contractor/Vendor', B.compName], ['Surveyor Name', si.preparedBy], ['Contact Number', si.contactNumber], ['Pic ' + (B.comp && !B.comp.none ? (B.comp.short || B.comp.name).toLowerCase() : (si.company ? si.company.replace(/\s+sdn\.?\s*bhd\.?$/i, '').toLowerCase() : 'company')), si.preparedBy]]);
     sect('TRANSMISSION', [['TX Type', F.tx.provider ? F.tx.provider + ' fiber' : ''], ['Structure Type', ''], ['Azimuth', ''], ['Far End Site', F.tx.location]]);
     sect('IN-BUILDING SITE', [['Building Type', String(F.bd.siteType || '').toUpperCase()], ['Building Height', F.bd.buildingHeight], ['Equipment Vendor', ''], ['Equipment', ''],
       ['Equipment Location', roomNames(F)], ['Existing 4G DAS', '']]);
@@ -3988,7 +3992,12 @@
   var FORMAT_NAMES = { edotco: 'EDOTCO format', kyocera: 'Kyocera format', anjurekar: 'Anjur Ekar format' };
   var brandLib = [];
   function brandList(side) { return BRAND_DEFAULTS[side].concat(brandLib.filter(function (b) { return b.side === side; })); }
-  function brandByKey(side, k) { return brandList(side).filter(function (b) { return b.k === k; })[0] || null; }
+  // "none" = no company logo; "none-<format>" = no client logo, report in that format
+  function brandByKey(side, k) {
+    if (side === 'company' && k === 'none') return { k: 'none', name: '', short: 'No logo', logo: null, none: true };
+    if (side === 'client' && /^none-/.test(k || '')) return { k: k, name: '', short: 'No logo', logo: null, none: true, format: k.slice(5) };
+    return brandList(side).filter(function (b) { return b.k === k; })[0] || null;
+  }
   function brandInput(key) { var f = form.querySelector('[data-field="' + key + '"] input'); return f; }
   function currentBrands() {
     var c = brandInput('brandCompany'), l = brandInput('brandClient');
@@ -4000,6 +4009,7 @@
   }
   function brandBadge(b) {
     if (!b) return '<span class="bb-none">Not chosen</span>';
+    if (b.none) return '<span class="bb-none">No logo</span>';
     return b.logo ? '<img src="' + b.logo + '" alt="' + esc(b.short || b.name) + '">' : '<span class="bb-name">' + esc(b.short || b.name) + '</span>';
   }
   function updateBrandBar() {
@@ -4031,6 +4041,8 @@
         '<span class="bt-cap">' + esc(b.short || b.name) + (b.custom && b.format && side === 'client' ? ' · ' + esc(FORMAT_NAMES[b.format] || '') : '') + '</span>' +
         (b.custom ? '<span class="bt-del" data-del="' + esc(b.k) + '" title="Remove">×</span>' : '') + '</button>';
     }).join('') +
+      (side === 'company' ? '<button type="button" class="brand-tile brand-skip' + (brandPick.company === 'none' ? ' on' : '') + '" data-k="__none">' +
+        '<span class="bt-skip">Skip</span><span class="bt-cap">No company logo</span></button>' : '') +
       '<label class="brand-tile brand-add"><span class="bt-plus">+</span><span class="bt-cap">Add ' + (side === 'company' ? 'company' : 'client') + ' logo</span>' +
       '<input type="file" accept="image/*" id="brandFile"></label>';
     $('brandBack').hidden = side === 'company';
@@ -4039,7 +4051,8 @@
   function openBrandPicker() {
     if (viewNew.hidden) { brandPending = true; return; }
     var cb = currentBrands();
-    brandPick = { company: cb.company ? cb.company.k : null, client: cb.client ? cb.client.k : null };
+    var lnI = brandInput('brandClientName');
+    brandPick = { company: cb.company ? cb.company.k : null, client: cb.client ? cb.client.k : null, clientName: lnI ? lnI.value : '' };
     brandStep = 'company';
     renderBrandStep();
     brandOv.hidden = false;
@@ -4047,6 +4060,7 @@
   function applyBrands() {
     var c = brandInput('brandCompany'), l = brandInput('brandClient');
     c.value = brandPick.company || ''; l.value = brandPick.client || '';
+    var ln = brandInput('brandClientName'); if (ln) ln.value = /^none-/.test(brandPick.client || '') ? (brandPick.clientName || '') : '';
     var comp = brandByKey('company', brandPick.company), compField = form.querySelector('[data-field="company"] input');
     if (comp && compField && !compField.value.trim()) compField.value = comp.name;
     brandOv.hidden = true;
@@ -4067,6 +4081,16 @@
       return;
     }
     var t = e.target.closest('.brand-tile[data-k]'); if (!t) return;
+    if (t.dataset.k === '__none') {
+      if (brandStep === 'company') { brandPick.company = 'none'; brandStep = 'client'; renderBrandStep(); return; }
+      ask('No client logo — which report format should this survey use?', [{ label: 'EDOTCO', value: 'edotco' }, { label: 'Kyocera', value: 'kyocera' }, { label: 'Anjur Ekar', value: 'anjurekar', kind: 'primary' }])
+        .then(function (fmt) {
+          if (!fmt) return;
+          return ask('Client name for the report text (optional — leave empty if not needed):', [{ label: 'Skip', value: null }, { label: 'OK', value: true, kind: 'primary' }], { placeholder: 'e.g. Maxis Broadband Sdn Bhd' })
+            .then(function (nm) { brandPick.client = 'none-' + fmt; brandPick.clientName = (nm || '').trim(); applyBrands(); });
+        });
+      return;
+    }
     brandPick[brandStep] = t.dataset.k;
     if (brandStep === 'company') { brandStep = 'client'; renderBrandStep(); }
     else applyBrands();
