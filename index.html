@@ -635,7 +635,6 @@
     { key: 'brandClientName', label: 'Report client name (no logo)', type: 'text', hide: 1 },
     { key: 'company', label: 'Surveying company', type: 'text', placeholder: 'e.g. Restu Jaya' },
     { key: 'projectType', label: 'Project type (report cover)', type: 'seg', options: ['New', 'Upgrade', 'Enhancement', 'Sharing'], only: 'edotco' },
-    { key: 'solution', label: 'Solution (report title)', type: 'text', placeholder: '5G In-Building System', list: ['5G In-Building System', '5G IBS Active DIS', '5G IBS Active DIS & Passive DAS', '5G IBC'] },
     { key: 'operator', label: 'Operator', type: 'text', list: ['U Mobile', 'Maxis', 'CelcomDigi', 'Unifi Mobile', 'Yes'] },
     { key: 'preparedBy', label: 'Prepared by', type: 'text', required: true },
     { key: 'contactNumber', label: 'Contact number', type: 'text' },
@@ -650,9 +649,7 @@
     { more: 1, key: 'approvedDate', label: 'Approved date', type: 'date' },
     { more: 1, key: 'divBuilding', label: 'Divider page — building summary' + DIV_HINT, type: 'textarea', placeholder: 'BUILDING\nSUMMARY', only: 'kyocera' },
     { more: 1, key: 'divEquip', label: 'Divider page — equipment' + DIV_HINT, type: 'textarea', placeholder: 'EQUIPMENT LOCATION\nRHUB & RRU LOCATION', only: 'edotco kyocera' },
-    { more: 1, key: 'divCme', label: 'Divider page — CME' + DIV_HINT, type: 'textarea', placeholder: 'PROPOSED CIVIL, MECHANICAL &\nELECTRICAL (CME)', only: 'kyocera anjurekar' },
-    { more: 1, key: 'reportLogo', label: 'Company logo — only to replace the one chosen at the start', type: 'photo' },
-    { more: 1, key: 'clientLogo', label: 'Client logo — only to replace the one chosen at the start', type: 'photo' }
+    { more: 1, key: 'divCme', label: 'Divider page — CME' + DIV_HINT, type: 'textarea', placeholder: 'PROPOSED CIVIL, MECHANICAL &\nELECTRICAL (CME)', only: 'kyocera anjurekar' }
   ];
   var siteSchema = [
     { key: 'siteName', label: 'Site name', type: 'text', required: true },
@@ -831,7 +828,7 @@
   function cardTitle(parts) { return parts.filter(function (p) { return p != null && p !== ''; }).join(' · '); }
   var PANELS = [
     { title: 'Project & Site', tab: 'Site', note: 'Once per site.', groups: [
-      { key: 'siteInfo', kind: 'single', schema: projectSchema, moreLabel: 'Revision, sign-off, logos & divider pages' },
+      { key: 'siteInfo', kind: 'single', schema: projectSchema, moreLabel: 'Revision, sign-off & divider pages' },
       { key: 'siteInfo', kind: 'single', schema: siteSchema, heading: 'Site' },
       { key: 'building', kind: 'single', schema: buildingSchema, heading: 'Building details' },
       { key: 'blocks', kind: 'repeat', schema: blockSchema, heading: 'Blocks — keep one for a single building', blockTitle: 'Block', addLabel: '+ Add block',
