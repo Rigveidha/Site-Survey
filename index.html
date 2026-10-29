@@ -1004,26 +1004,31 @@
       // Watch the GPS for up to 20 s and keep the most accurate fix; stop early once it is within 10 m
       btn.disabled = true;
       val.classList.remove('set');
-      val.textContent = 'Locating… stand near a window or outside for a better fix';
-      var best = null, watchId = null, timer = null;
+      var best = null, watchId = null, timer = null, t0 = Date.now(), tick = null, last = 0;
+      function pct() {
+        var byTime = (Date.now() - t0) / 20000 * 100, byAcc = best ? 10 / Math.max(10, best.accuracy) * 100 : 0;
+        var v = Math.min(99, Math.round(byTime * 0.6 + byAcc * 0.4)); last = Math.max(last, v); return last; // always moves forward
+      }
+      function showPct() { val.textContent = 'Locating… ' + pct() + '%' + (best ? '  (±' + Math.round(best.accuracy) + ' m)' : ''); }
+      showPct(); tick = setInterval(showPct, 250);
       function finish() {
         if (watchId != null) navigator.geolocation.clearWatch(watchId);
-        clearTimeout(timer);
+        clearTimeout(timer); clearInterval(tick);
         btn.disabled = false;
         if (!best) return;
         setGpsDisplay(fieldEl, { lat: best.latitude.toFixed(7), lng: best.longitude.toFixed(7), acc: Math.round(best.accuracy) });
-        val.textContent = 'Accurate to ±' + Math.round(best.accuracy) + ' m' + (best.accuracy > 30 ? ' — tap again outdoors for a closer fix' : '');
+        val.textContent = 'Located 100% — accurate to ±' + Math.round(best.accuracy) + ' m' + (best.accuracy > 30 ? ' — tap again outdoors for a closer fix' : '');
         scheduleDraft();
         gpsChanged();
       }
       watchId = navigator.geolocation.watchPosition(function (pos) {
         if (!best || pos.coords.accuracy < best.accuracy) best = pos.coords;
-        val.textContent = 'Locating… ±' + Math.round(best.accuracy) + ' m';
+        showPct();
         if (best.accuracy <= 10) finish();
       }, function (err) {
         if (best) { finish(); return; }
         if (watchId != null) navigator.geolocation.clearWatch(watchId);
-        clearTimeout(timer);
+        clearTimeout(timer); clearInterval(tick);
         btn.disabled = false;
         if (err.code === 1 && window.claude) { offerMaps(); val.textContent = ''; }
         else if (err.code === 1) val.textContent = 'Location is blocked for this page. Allow location for this site in the browser settings, then tap again.';
@@ -1054,13 +1059,13 @@
     var n = 256 * Math.pow(2, z), s = Math.sin(lat * Math.PI / 180);
     return { x: (lng + 180) / 360 * n, y: (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n };
   }
-  function paintLayer(ctx, url, lat, lng, z, W, H) {
+  function paintLayer(ctx, url, lat, lng, z, W, H, onTile) {
     var c = worldPx(lat, lng, z), left = c.x - W / 2, top = c.y - H / 2, n = Math.pow(2, z), jobs = [];
     for (var tx = Math.floor(left / 256); tx <= Math.floor((left + W) / 256); tx++)
       for (var ty = Math.floor(top / 256); ty <= Math.floor((top + H) / 256); ty++) {
         if (ty < 0 || ty >= n) continue;
         (function (tx, ty) {
-          jobs.push(tileImg(url(z, ((tx % n) + n) % n, ty)).then(function (im) { return im ? { im: im, x: Math.round(tx * 256 - left), y: Math.round(ty * 256 - top) } : null; }));
+          jobs.push(tileImg(url(z, ((tx % n) + n) % n, ty)).then(function (im) { if (onTile) onTile(); return im ? { im: im, x: Math.round(tx * 256 - left), y: Math.round(ty * 256 - top) } : null; }));
         })(tx, ty);
       }
     return Promise.all(jobs).then(function (r) {
@@ -1082,13 +1087,19 @@
     ctx.fillStyle = '#A50E0E'; ctx.beginPath(); ctx.arc(x, y - r * 2.1, r * 0.38, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
-  function makeLocationMap(lat, lng, kind, siteName) {
+  function tileCount(lat, lng, z, W, H) {
+    var c = worldPx(lat, lng, z), l = c.x - W / 2, t = c.y - H / 2;
+    return (Math.floor((l + W) / 256) - Math.floor(l / 256) + 1) * (Math.floor((t + H) / 256) - Math.floor(t / 256) + 1);
+  }
+  function makeLocationMap(lat, lng, kind, siteName, onProg) {
     var W = 1600, H = 930, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     var ctx = cv.getContext('2d'), src = MAP_SRC[kind] || MAP_SRC.sat;
     ctx.fillStyle = '#d9d6cf'; ctx.fillRect(0, 0, W, H);
-    var base = 0;
+    var base = 0, total = tileCount(lat, lng, src.z, W, H) * src.layers.length, done = 0;
+    function step() { done++; if (onProg) onProg(Math.min(99, Math.round(done / total * 100))); }
+    if (onProg) onProg(0);
     return src.layers.reduce(function (pr, url, i) {
-      return pr.then(function () { return paintLayer(ctx, url, lat, lng, src.z, W, H).then(function (n) { if (i === 0) base = n; }); });
+      return pr.then(function () { return paintLayer(ctx, url, lat, lng, src.z, W, H, step).then(function (n) { if (i === 0) base = n; }); });
     }, Promise.resolve()).then(function () {
       if (!base) throw new Error('no tiles');
       drawPin(ctx, W / 2, H / 2, 17);
@@ -1116,14 +1127,14 @@
     if (opts.quiet && grid._photos.some(function (p) { return !p.auto; })) return; // never replace a map you added yourself
     var kind = fieldEl.dataset.mapKind || 'sat';
     var nameEl = document.querySelector('[data-field="siteName"] input');
-    status.textContent = 'Making the map…';
+    status.textContent = 'Loading map… 0%';
     fieldEl._mapJob = (fieldEl._mapJob || 0) + 1; var job = fieldEl._mapJob;
-    makeLocationMap(g.lat, g.lng, kind, nameEl && nameEl.value).then(function (d) {
+    makeLocationMap(g.lat, g.lng, kind, nameEl && nameEl.value, function (p) { if (job === fieldEl._mapJob) status.textContent = 'Loading map… ' + p + '%'; }).then(function (d) {
       if (job !== fieldEl._mapJob) return;
       var keep = grid._photos.filter(function (p) { return !p.auto; });
       grid._photos = [{ original: d, annotated: d, auto: kind, at: g.lat + ',' + g.lng }].concat(keep);
       renderPhotoGrid(grid); scheduleDraft();
-      status.textContent = 'Map made from ' + g.lat.toFixed(6) + ', ' + g.lng.toFixed(6) + '. It updates when the location changes.';
+      status.textContent = 'Map loaded 100% — made from ' + g.lat.toFixed(6) + ', ' + g.lng.toFixed(6) + '. It updates when the location changes.';
     }).catch(function () {
       if (job !== fieldEl._mapJob) return;
       status.textContent = 'Could not load the map — it needs internet. Tap "Make map" again when you have signal.';
